@@ -104,6 +104,11 @@ public:
   size_t GetNumClients() const;
 
 private:
+  using BrokerClientMap = std::unordered_map<BrokerClient::Handle, std::unique_ptr<BrokerClient>>;
+  using RptClientMap = std::unordered_map<BrokerClient::Handle, RPTClient*>;
+  using RptControllerMap = std::unordered_map<BrokerClient::Handle, RPTController*>;
+  using RptDeviceMap = std::unordered_map<BrokerClient::Handle, RPTDevice*>;
+
   // These are never modified between startup and shutdown, so they don't need to be locked.
   bool started_{false};
   bool service_registered_{false};
@@ -127,14 +132,14 @@ private:
   etcpal::Timer             client_destroy_timer_{kClientDestroyIntervalMs};
 
   // The list of connected clients, indexed by the connection handle
-  std::unordered_map<BrokerClient::Handle, std::unique_ptr<BrokerClient>> clients_;
+  BrokerClientMap clients_;
   // Protects the list of clients and uid lookup, but not the data in the clients themselves.
   mutable etcpal::RwLock client_lock_;
 
   // We also divide the clients into subgroups by client protocol and by RPT role.
-  std::unordered_map<BrokerClient::Handle, RPTClient*>     rpt_clients_;
-  std::unordered_map<BrokerClient::Handle, RPTController*> controllers_;
-  std::unordered_map<BrokerClient::Handle, RPTDevice*>     devices_;
+  RptClientMap     rpt_clients_;
+  RptControllerMap controllers_;
+  RptDeviceMap     devices_;
 
   std::unordered_set<BrokerClient::Handle> clients_to_destroy_;
 
@@ -172,17 +177,24 @@ private:
                                            bool&                throttle) override;
 
   // Message processing and sending functions
-  void ProcessConnectRequest(BrokerClient::Handle client_handle, const BrokerClientConnectMsg* cmsg);
-  bool ProcessRPTConnectRequest(BrokerClient::Handle        client_handle,
-                                const RdmnetRptClientEntry& client_entry,
-                                rdmnet_connect_status_t&    connect_status);
-  bool ResolveNewClientUid(BrokerClient::Handle     client_handle,
-                           RdmnetRptClientEntry&    client_entry,
-                           rdmnet_connect_status_t& connect_status);
-  void ProcessRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle);
-  void RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle);
-  void HandleRPTClientBadPushResult(RPTClient& client, ClientPushResult result, bool& throttle);
-  void ResetClientHeartbeatTimer(BrokerClient::Handle client_handle);
+  void             ProcessConnectRequest(BrokerClient::Handle client_handle, const BrokerClientConnectMsg* cmsg);
+  bool             ProcessRPTConnectRequest(BrokerClient::Handle        client_handle,
+                                            const RdmnetRptClientEntry& client_entry,
+                                            rdmnet_connect_status_t&    connect_status);
+  bool             ResolveNewClientUid(BrokerClient::Handle     client_handle,
+                                       RdmnetRptClientEntry&    client_entry,
+                                       rdmnet_connect_status_t& connect_status);
+  void             ProcessRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle);
+  void             RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle);
+  ClientPushResult PushToAllControllers(BrokerClient::Handle sender_handle, const RdmnetMessage* msg);
+  ClientPushResult PushToAllDevices(BrokerClient::Handle sender_handle, const RdmnetMessage* msg);
+  ClientPushResult PushToManuSpecificDevices(BrokerClient::Handle sender_handle,
+                                             const RdmnetMessage* msg,
+                                             uint16_t             manu);
+  ClientPushResult PushToSpecificRptClient(BrokerClient::Handle sender_handle, const RdmnetMessage* msg);
+  RptClientMap::iterator FindRptClient(const RdmUid& uid);
+  void                   HandleRPTClientBadPushResult(const RptHeader& header, ClientPushResult result, bool& throttle);
+  void                   ResetClientHeartbeatTimer(BrokerClient::Handle client_handle);
 
   void SendRDMBrokerResponse(BrokerClient::Handle client_handle,
                              const RPTMessageRef& msg,

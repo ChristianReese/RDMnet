@@ -156,6 +156,7 @@ public:
   }
   virtual ~BrokerClient() = default;
 
+  virtual bool             HasRoomToPush();
   virtual ClientPushResult Push(const etcpal::Uuid& sender_cid, const BrokerMessage& msg);
   virtual bool             Send(const etcpal::Uuid& broker_cid);
   void                     MarkForDestruction(const etcpal::Uuid&        broker_cid,
@@ -224,6 +225,8 @@ public:
   {
     return ClientPushResult::Error;
   }
+
+  virtual bool             HasRoomToPush() override;
   virtual ClientPushResult Push(const etcpal::Uuid& sender_cid, const BrokerMessage& msg) override;
 
   RdmUid            uid{};
@@ -253,13 +256,13 @@ public:
   }
   virtual ~RPTController() {}
 
+  virtual bool             HasRoomToPush() override;
   virtual ClientPushResult Push(Handle from_conn, const etcpal::Uuid& sender_cid, const RptMessage& msg) override;
   virtual ClientPushResult Push(const etcpal::Uuid& sender_cid, const BrokerMessage& msg) override;
   virtual ClientPushResult Push(const etcpal::Uuid& sender_cid, const RptHeader& header, const RptStatusMsg& msg);
   virtual bool             Send(const etcpal::Uuid& broker_cid) override;
 
 protected:
-  bool         HasRoomToPush();
   virtual void ClearAllQueues();
 
   std::deque<MessageRef> rpt_msgs_;
@@ -276,12 +279,12 @@ public:
   }
   virtual ~RPTDevice() {}
 
+  virtual bool             HasRoomToPush() override;
   virtual ClientPushResult Push(Handle from_conn, const etcpal::Uuid& sender_cid, const RptMessage& msg) override;
   virtual ClientPushResult Push(const etcpal::Uuid& sender_cid, const BrokerMessage& msg) override;
   virtual bool             Send(const etcpal::Uuid& broker_cid) override;
 
 protected:
-  bool         HasRoomToPush();
   virtual void ClearAllQueues();
 
   // A special queue-like class that organizes messages by source controller for fair scheduling.

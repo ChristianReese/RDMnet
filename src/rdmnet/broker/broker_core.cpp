@@ -951,96 +951,176 @@ void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const Rdm
 
 void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle)
 {
-  const RptMessage*    rptmsg = RDMNET_GET_RPT_MSG(msg);
-  uint16_t             device_manu;
-  BrokerClient::Handle dest_client_handle;
+  const RptMessage* rptmsg = RDMNET_GET_RPT_MSG(msg);
+  uint16_t          device_manu;
+
+  ClientPushResult push_result = ClientPushResult::Error;
 
   if (RDMNET_UID_IS_CONTROLLER_BROADCAST(&rptmsg->header.dest_uid))
   {
     BROKER_LOG_DEBUG("Broadcasting RPT message from Device %04x:%08x to all Controllers",
                      rptmsg->header.source_uid.manu, rptmsg->header.source_uid.id);
-    for (auto controller : controllers_)
-    {
-      ClientWriteGuard client_write(*controller.second);
-      auto             push_res = controller.second->Push(client_handle, msg->sender_cid, *rptmsg);
-      if (push_res != ClientPushResult::Ok)
-        HandleRPTClientBadPushResult(*controller.second, push_res, throttle);
-    }
+
+    push_result = PushToAllControllers(client_handle, msg);
   }
   else if (RDMNET_UID_IS_DEVICE_BROADCAST(&rptmsg->header.dest_uid))
   {
     BROKER_LOG_DEBUG("Broadcasting RPT message from Controller %04x:%08x to all Devices",
                      rptmsg->header.source_uid.manu, rptmsg->header.source_uid.id);
-    for (auto device : devices_)
-    {
-      ClientWriteGuard client_write(*device.second);
-      auto             push_res = device.second->Push(client_handle, msg->sender_cid, *rptmsg);
-      if (push_res != ClientPushResult::Ok)
-        HandleRPTClientBadPushResult(*device.second, push_res, throttle);
-    }
+
+    push_result = PushToAllDevices(client_handle, msg);
   }
   else if (IsDeviceManuBroadcastUID(rptmsg->header.dest_uid, device_manu))
   {
     BROKER_LOG_DEBUG("Broadcasting RPT message from Controller %04x:%08x to all Devices from manufacturer %04x",
                      rptmsg->header.source_uid.manu, rptmsg->header.source_uid.id, device_manu);
-    for (auto device : devices_)
-    {
-      if (device.second->uid.manu == device_manu)
-      {
-        ClientWriteGuard client_write(*device.second);
-        auto             push_res = device.second->Push(client_handle, msg->sender_cid, *rptmsg);
-        if (push_res != ClientPushResult::Ok)
-          HandleRPTClientBadPushResult(*device.second, push_res, throttle);
-      }
-    }
+
+    push_result = PushToManuSpecificDevices(client_handle, msg, device_manu);
   }
   else
   {
-    bool found_dest_client = false;
-    if (components_.uids.UidToHandle(rptmsg->header.dest_uid, dest_client_handle))
+    push_result = PushToSpecificRptClient(client_handle, msg);
+    if (push_result == ClientPushResult::Ok)
     {
-      auto dest_client = clients_.find(dest_client_handle);
-      if (dest_client != clients_.end())
-      {
-        found_dest_client = true;
-        ClientWriteGuard client_write(*dest_client->second);
-        auto             push_res =
-            static_cast<RPTClient*>(dest_client->second.get())->Push(client_handle, msg->sender_cid, *rptmsg);
-        if (push_res == ClientPushResult::Ok)
-        {
-          BROKER_LOG_DEBUG("Routing RPT PDU from Client %04x:%08x to Client %04x:%08x", rptmsg->header.source_uid.manu,
-                           rptmsg->header.source_uid.id, rptmsg->header.dest_uid.manu, rptmsg->header.dest_uid.id);
-        }
-        else
-        {
-          HandleRPTClientBadPushResult(*static_cast<RPTClient*>(dest_client->second.get()), push_res, throttle);
-        }
-      }
-    }
-    if (!found_dest_client)
-    {
-      BROKER_LOG_ERR("Could not route message from RPT Client %d (%04x:%08x): Destination UID %04x:%08x not found.",
-                     client_handle, rptmsg->header.source_uid.manu, rptmsg->header.source_uid.id,
-                     rptmsg->header.dest_uid.manu, rptmsg->header.dest_uid.id);
+      BROKER_LOG_DEBUG("Routing RPT PDU from Client %04x:%08x to Client %04x:%08x", rptmsg->header.source_uid.manu,
+                       rptmsg->header.source_uid.id, rptmsg->header.dest_uid.manu, rptmsg->header.dest_uid.id);
     }
   }
+
+  if (push_result != ClientPushResult::Ok)
+    HandleRPTClientBadPushResult(rptmsg->header, push_result, throttle);
 }
 
-void BrokerCore::HandleRPTClientBadPushResult(RPTClient& client, ClientPushResult result, bool& throttle)
+template <class InputIt, class FilterFunction>
+ClientPushResult PushToClients(BrokerClient::Handle sender_handle,
+                               const RdmnetMessage* msg,
+                               InputIt              first_dest,
+                               InputIt              last_dest,
+                               FilterFunction       dest_filter)
 {
-  if (result == ClientPushResult::QueueFull)
+  ClientPushResult result = ClientPushResult::Ok;
+
+  const RptMessage* rptmsg = RDMNET_GET_RPT_MSG(msg);
+
+  // Lock all destination clients
+  std::for_each(first_dest, last_dest, [&](auto& dest) {
+    if (dest_filter(dest))
+      dest.second->lock.WriteLock();
+  });
+
+  // Check if any destination client queues are full
+  std::for_each(first_dest, last_dest, [&](auto& dest) {
+    if (dest_filter(dest) && !dest.second->HasRoomToPush())
+      result = ClientPushResult::QueueFull;
+  });
+
+  // If no queues are full, push to all queues
+  if (result == ClientPushResult::Ok)
   {
-    BROKER_LOG_DEBUG("Couldn't push to send queue for RPT %s %d: queue is full at %zu messages. Retrying later.",
-                     client.client_type == kRPTClientTypeController ? "Controller" : "Device", client.handle,
-                     client.max_q_size);
+    std::for_each(first_dest, last_dest, [&](auto& dest) {
+      if (dest_filter(dest))
+      {
+        auto push_res = dest.second->Push(sender_handle, msg->sender_cid, *rptmsg);
+
+        if (result == ClientPushResult::Ok)
+          result = push_res;
+      }
+    });
+  }
+
+  // Unlock all destination clients
+  std::for_each(first_dest, last_dest, [&](auto& dest) {
+    if (dest_filter(dest))
+      dest.second->lock.WriteUnlock();
+  });
+
+  return result;
+}
+
+ClientPushResult BrokerCore::PushToAllControllers(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
+{
+  return PushToClients(sender_handle, msg, controllers_.begin(), controllers_.end(),
+                       [](auto& /*dest*/) { return true; });
+}
+
+ClientPushResult BrokerCore::PushToAllDevices(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
+{
+  return PushToClients(sender_handle, msg, devices_.begin(), devices_.end(), [](auto& /*dest*/) { return true; });
+}
+
+ClientPushResult BrokerCore::PushToManuSpecificDevices(BrokerClient::Handle sender_handle,
+                                                       const RdmnetMessage* msg,
+                                                       uint16_t             manu)
+{
+  return PushToClients(sender_handle, msg, devices_.begin(), devices_.end(),
+                       [&](auto& dest) { return (dest.second->uid.manu == manu); });
+}
+
+ClientPushResult BrokerCore::PushToSpecificRptClient(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
+{
+  const RptMessage* rptmsg = RDMNET_GET_RPT_MSG(msg);
+
+  auto dest_client = FindRptClient(rptmsg->header.dest_uid);
+  if (dest_client != rpt_clients_.end())
+    return PushToClients(sender_handle, msg, dest_client, std::next(dest_client), [](auto& /*dest*/) { return true; });
+
+  return ClientPushResult::Error;
+}
+
+BrokerCore::RptClientMap::iterator BrokerCore::FindRptClient(const RdmUid& uid)
+{
+  BrokerClient::Handle handle;
+  if (components_.uids.UidToHandle(uid, handle))
+    return rpt_clients_.find(handle);
+
+  return rpt_clients_.end();
+}
+
+void BrokerCore::HandleRPTClientBadPushResult(const RptHeader& header, ClientPushResult result, bool& throttle)
+{
+  std::string dest_type("Unknown");
+  bool        not_found = false;
+  uint16_t    tmp = 0u;
+  if (RDMNET_UID_IS_CONTROLLER_BROADCAST(&header.dest_uid))
+  {
+    dest_type = "Controller Broadcast";
+  }
+  else if (RDMNET_UID_IS_DEVICE_BROADCAST(&header.dest_uid))
+  {
+    dest_type = "Device Broadcast";
+  }
+  else if (IsDeviceManuBroadcastUID(header.dest_uid, tmp))
+  {
+    dest_type = "Manufacturer-Specific Device Broadcast";
+  }
+  else
+  {
+    auto dest_client = FindRptClient(header.dest_uid);
+    if (dest_client == rpt_clients_.end())
+      not_found = true;
+    else if (dest_client->second->client_type == kRPTClientTypeDevice)
+      dest_type = "Device";
+    else if (dest_client->second->client_type == kRPTClientTypeController)
+      dest_type = "Controller";
+  }
+
+  if (not_found)
+  {
+    BROKER_LOG_ERR("Could not route message from RPT Client UID %04x:%08x: Destination UID %04x:%08x not found.",
+                   header.source_uid.manu, header.source_uid.id, header.dest_uid.manu, header.dest_uid.id);
+  }
+  else if (result == ClientPushResult::QueueFull)
+  {
+    BROKER_LOG_DEBUG("Couldn't send message to UID %04x:%08x (%s): one or more queues are full. Retrying later.",
+                     header.dest_uid.manu, header.dest_uid.id, dest_type.c_str());
 
     // Full queue, so delay processing of the message.
     throttle = true;
   }
   else if (result == ClientPushResult::Error)
   {
-    BROKER_LOG_CRIT("Error pushing to send queue for RPT %s %d: internal error occurred!",
-                    client.client_type == kRPTClientTypeController ? "Controller" : "Device", client.handle);
+    BROKER_LOG_CRIT("Error sending message to UID %04x:%08x (%s): internal error occurred!", header.dest_uid.manu,
+                    header.dest_uid.id, dest_type.c_str());
     // TODO figure out what to do here... probably disconnect the client.
   }
 }
@@ -1156,6 +1236,6 @@ void BrokerCore::SendStatus(RPTController*     controller,
   }
   else
   {
-    HandleRPTClientBadPushResult(*controller, push_res, throttle);
+    HandleRPTClientBadPushResult(new_header, push_res, throttle);
   }
 }

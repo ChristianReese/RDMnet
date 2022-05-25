@@ -1030,9 +1030,9 @@ void BrokerCore::HandleRPTClientBadPushResult(RPTClient& client, ClientPushResul
 {
   if (result == ClientPushResult::QueueFull)
   {
-    BROKER_LOG_ERR("Error pushing to send queue for RPT %s %d: queue is full at %zu messages.",
-                   client.client_type == kRPTClientTypeController ? "Controller" : "Device", client.handle,
-                   client.max_q_size);
+    BROKER_LOG_DEBUG("Couldn't push to send queue for RPT %s %d: queue is full at %zu messages. Retrying later.",
+                     client.client_type == kRPTClientTypeController ? "Controller" : "Device", client.handle,
+                     client.max_q_size);
 
     // Full queue, so delay processing of the message.
     throttle = true;

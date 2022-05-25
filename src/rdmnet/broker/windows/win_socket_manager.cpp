@@ -354,10 +354,19 @@ void WinBrokerSocketManager::WorkerNotifyRecvData(BrokerClient::Handle client_ha
     etcpal_error_t res = rc_msg_buf_parse_data(&sock_data->second->recv_buf);
     while (res == kEtcPalErrOk)
     {
-      if (!sock_data->second->close_requested && notify_)
+      bool throttle = !notify_;
+      do
       {
-        notify_->HandleSocketMessageReceived(client_handle, sock_data->second->recv_buf.msg);
-      }
+        if (!sock_data->second->close_requested)
+        {
+          if (notify_)
+            notify_->HandleSocketMessageReceived(client_handle, sock_data->second->recv_buf.msg, throttle);
+
+          if (throttle)
+            Sleep(10);  // Sleep to avoid busy loop.
+        }
+      } while (throttle && !sock_data->second->close_requested);
+
       rc_free_message_resources(&sock_data->second->recv_buf.msg);
       res = rc_msg_buf_parse_data(&sock_data->second->recv_buf);
     }

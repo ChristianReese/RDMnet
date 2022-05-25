@@ -167,7 +167,9 @@ private:
 
   // BrokerSocketNotify messages
   virtual void HandleSocketClosed(BrokerClient::Handle client_handle, bool graceful) override;
-  virtual void HandleSocketMessageReceived(BrokerClient::Handle client_handle, const RdmnetMessage& message) override;
+  virtual void HandleSocketMessageReceived(BrokerClient::Handle client_handle,
+                                           const RdmnetMessage& message,
+                                           bool&                throttle) override;
 
   // Message processing and sending functions
   void ProcessConnectRequest(BrokerClient::Handle client_handle, const BrokerClientConnectMsg* cmsg);
@@ -177,9 +179,9 @@ private:
   bool ResolveNewClientUid(BrokerClient::Handle     client_handle,
                            RdmnetRptClientEntry&    client_entry,
                            rdmnet_connect_status_t& connect_status);
-  void ProcessRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg);
-  void RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg);
-  void HandleRPTClientBadPushResult(RPTClient& client, ClientPushResult result);
+  void ProcessRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle);
+  void RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle);
+  void HandleRPTClientBadPushResult(RPTClient& client, ClientPushResult result, bool& throttle);
   void ResetClientHeartbeatTimer(BrokerClient::Handle client_handle);
 
   void SendRDMBrokerResponse(BrokerClient::Handle client_handle,
@@ -197,6 +199,7 @@ private:
   void SendStatus(RPTController*     controller,
                   const RptHeader&   header,
                   rpt_status_code_t  status_code,
+                  bool&              throttle,
                   const std::string& status_str = std::string());
 };
 

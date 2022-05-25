@@ -626,8 +626,13 @@ void BrokerCore::HandleSocketClosed(BrokerClient::Handle client_handle, bool /*g
   MarkClientForDestruction(client_handle, ClientDestroyAction::MarkSocketInvalid());
 }
 
-void BrokerCore::HandleSocketMessageReceived(BrokerClient::Handle client_handle, const RdmnetMessage& message)
+void BrokerCore::HandleSocketMessageReceived(BrokerClient::Handle client_handle,
+                                             const RdmnetMessage& message,
+                                             bool&                throttle)
 {
+  // By default, don't throttle. Only certain cases require it.
+  throttle = false;
+
   // Any well-formed Root Layer PDU message resets the heartbeat timer.
   ResetClientHeartbeatTimer(client_handle);
 
@@ -659,7 +664,7 @@ void BrokerCore::HandleSocketMessageReceived(BrokerClient::Handle client_handle,
     }
 
     case ACN_VECTOR_ROOT_RPT:
-      ProcessRPTMessage(client_handle, &message);
+      ProcessRPTMessage(client_handle, &message, throttle);
       break;
 
     default:
@@ -838,7 +843,7 @@ bool BrokerCore::ResolveNewClientUid(BrokerClient::Handle     client_handle,
   }
 }
 
-void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg)
+void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle)
 {
   etcpal::ReadGuard clients_read(client_lock_);
 
@@ -864,7 +869,7 @@ void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const Rdm
             RPTController* controller = static_cast<RPTController*>(rptcli);
             if (!IsValidControllerDestinationUID(rptmsg->header.dest_uid))
             {
-              SendStatus(controller, rptmsg->header, kRptStatusUnknownRptUid);
+              SendStatus(controller, rptmsg->header, kRptStatusUnknownRptUid, throttle);
               BROKER_LOG_DEBUG(
                   "Received Request PDU addressed to invalid or not found UID %04x:%08x from Controller %d",
                   rptmsg->header.dest_uid.manu, rptmsg->header.dest_uid.id, client_handle);
@@ -872,7 +877,7 @@ void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const Rdm
             else if (RPT_GET_RDM_BUF_LIST(rptmsg)->num_rdm_buffers > 1)
             {
               // There should only ever be one RDM command in an RPT request.
-              SendStatus(controller, rptmsg->header, kRptStatusInvalidMessage);
+              SendStatus(controller, rptmsg->header, kRptStatusInvalidMessage, throttle);
               BROKER_LOG_DEBUG(
                   "Received Request PDU from Controller %d which incorrectly contains multiple RDM Command PDUs",
                   client_handle);
@@ -940,11 +945,11 @@ void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const Rdm
 
   if (route_msg)
   {
-    RouteRPTMessage(client_handle, msg);
+    RouteRPTMessage(client_handle, msg, throttle);
   }
 }
 
-void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg)
+void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle)
 {
   const RptMessage*    rptmsg = RDMNET_GET_RPT_MSG(msg);
   uint16_t             device_manu;
@@ -959,7 +964,7 @@ void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const Rdmne
       ClientWriteGuard client_write(*controller.second);
       auto             push_res = controller.second->Push(client_handle, msg->sender_cid, *rptmsg);
       if (push_res != ClientPushResult::Ok)
-        HandleRPTClientBadPushResult(*controller.second, push_res);
+        HandleRPTClientBadPushResult(*controller.second, push_res, throttle);
     }
   }
   else if (RDMNET_UID_IS_DEVICE_BROADCAST(&rptmsg->header.dest_uid))
@@ -971,7 +976,7 @@ void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const Rdmne
       ClientWriteGuard client_write(*device.second);
       auto             push_res = device.second->Push(client_handle, msg->sender_cid, *rptmsg);
       if (push_res != ClientPushResult::Ok)
-        HandleRPTClientBadPushResult(*device.second, push_res);
+        HandleRPTClientBadPushResult(*device.second, push_res, throttle);
     }
   }
   else if (IsDeviceManuBroadcastUID(rptmsg->header.dest_uid, device_manu))
@@ -985,7 +990,7 @@ void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const Rdmne
         ClientWriteGuard client_write(*device.second);
         auto             push_res = device.second->Push(client_handle, msg->sender_cid, *rptmsg);
         if (push_res != ClientPushResult::Ok)
-          HandleRPTClientBadPushResult(*device.second, push_res);
+          HandleRPTClientBadPushResult(*device.second, push_res, throttle);
       }
     }
   }
@@ -1008,7 +1013,7 @@ void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const Rdmne
         }
         else
         {
-          HandleRPTClientBadPushResult(*static_cast<RPTClient*>(dest_client->second.get()), push_res);
+          HandleRPTClientBadPushResult(*static_cast<RPTClient*>(dest_client->second.get()), push_res, throttle);
         }
       }
     }
@@ -1021,20 +1026,23 @@ void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const Rdmne
   }
 }
 
-void BrokerCore::HandleRPTClientBadPushResult(RPTClient& client, ClientPushResult result)
+void BrokerCore::HandleRPTClientBadPushResult(RPTClient& client, ClientPushResult result, bool& throttle)
 {
   if (result == ClientPushResult::QueueFull)
   {
     BROKER_LOG_ERR("Error pushing to send queue for RPT %s %d: queue is full at %zu messages.",
                    client.client_type == kRPTClientTypeController ? "Controller" : "Device", client.handle,
                    client.max_q_size);
+
+    // Full queue, so delay processing of the message.
+    throttle = true;
   }
   else if (result == ClientPushResult::Error)
   {
     BROKER_LOG_CRIT("Error pushing to send queue for RPT %s %d: internal error occurred!",
                     client.client_type == kRPTClientTypeController ? "Controller" : "Device", client.handle);
+    // TODO figure out what to do here... probably disconnect the client.
   }
-  // TODO figure out what to do here... probably disconnect the client.
 }
 
 void BrokerCore::ResetClientHeartbeatTimer(BrokerClient::Handle client_handle)
@@ -1124,6 +1132,7 @@ void BrokerCore::SendClientsRemoved(std::vector<RdmnetRptClientEntry>& entries)
 void BrokerCore::SendStatus(RPTController*     controller,
                             const RptHeader&   header,
                             rpt_status_code_t  status_code,
+                            bool&              throttle,
                             const std::string& status_str)
 {
   RptHeader new_header;
@@ -1147,6 +1156,6 @@ void BrokerCore::SendStatus(RPTController*     controller,
   }
   else
   {
-    HandleRPTClientBadPushResult(*controller, push_res);
+    HandleRPTClientBadPushResult(*controller, push_res, throttle);
   }
 }

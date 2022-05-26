@@ -26,7 +26,7 @@
 
 bool BrokerClient::HasRoomToPush()
 {
-  return (max_q_size == 0) || (broker_msgs_.size() < max_q_size);
+  return (max_q_size == kLimitlessQueueSize) || (broker_msgs_.size() < max_q_size);
 }
 
 ClientPushResult BrokerClient::Push(const etcpal::Uuid& sender_cid, const BrokerMessage& msg)
@@ -224,7 +224,8 @@ void RPTClient::ClearAllQueues()
 
 bool RPTController::HasRoomToPush()
 {
-  return (max_q_size == 0 || (status_msgs_.size() + broker_msgs_.size() + rpt_msgs_.size()) < max_q_size);
+  return ((max_q_size == kLimitlessQueueSize) ||
+          (status_msgs_.size() + broker_msgs_.size() + rpt_msgs_.size()) < max_q_size);
 }
 
 ClientPushResult RPTController::Push(BrokerClient::Handle /*from_client*/,
@@ -363,7 +364,8 @@ void RPTController::ClearAllQueues()
 
 bool RPTDevice::HasRoomToPush()
 {
-  return (max_q_size == 0 || (status_msgs_.size() + broker_msgs_.size() + rpt_msgs_.size()) < max_q_size);
+  return ((max_q_size == kLimitlessQueueSize) ||
+          (status_msgs_.size() + broker_msgs_.size() + rpt_msgs_.size()) < max_q_size);
 }
 
 ClientPushResult RPTDevice::Push(BrokerClient::Handle from_client,

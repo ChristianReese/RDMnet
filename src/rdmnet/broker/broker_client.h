@@ -172,7 +172,7 @@ public:
   Handle                 handle{kInvalidHandle};
   mutable etcpal::RwLock lock;
   etcpal_socket_t        socket{ETCPAL_SOCKET_INVALID};
-  size_t                 max_q_size{0};
+  size_t                 max_q_size{kLimitlessQueueSize};
   bool                   marked_for_destruction{false};
 
 protected:
@@ -183,6 +183,8 @@ protected:
                                       const ClientDestroyAction& destroy_action);
 
   virtual void ClearAllQueues() { broker_msgs_.clear(); }
+
+  static constexpr size_t kLimitlessQueueSize = 0u;
 
   std::deque<MessageRef> broker_msgs_;
   etcpal::Timer          send_timer_{std::chrono::seconds(E133_TCP_HEARTBEAT_INTERVAL_SEC)};

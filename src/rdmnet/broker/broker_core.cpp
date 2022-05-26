@@ -1013,7 +1013,7 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
   int num_successfull_locks = 0;
   for (auto dest = first_dest; dest != last_dest; ++dest)
   {
-    if (dest_filter(*dest))
+    if (dest_filter(dest))
     {
       if (dest->second->lock.WriteLock())
       {
@@ -1030,24 +1030,26 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
   // If all locks succeeded, check if any destination client queues are full
   if (result == ClientPushResult::Ok)
   {
-    std::for_each(first_dest, last_dest, [&](auto& dest) {
-      if (dest_filter(dest) && !dest.second->HasRoomToPush())
+    for (auto dest = first_dest; dest != last_dest; ++dest)
+    {
+      if (dest_filter(dest) && !dest->second->HasRoomToPush())
         result = ClientPushResult::QueueFull;
-    });
+    }
   }
 
   // If no queues are full, push to all queues
   if (result == ClientPushResult::Ok)
   {
-    std::for_each(first_dest, last_dest, [&](auto& dest) {
+    for (auto dest = first_dest; dest != last_dest; ++dest)
+    {
       if (dest_filter(dest))
       {
-        auto push_res = dest.second->Push(sender_handle, msg->sender_cid, *rptmsg);
+        auto push_res = dest->second->Push(sender_handle, msg->sender_cid, *rptmsg);
 
         if (result == ClientPushResult::Ok)
           result = push_res;
       }
-    });
+    }
   }
 
   // Unlock all destination clients that locked successfully
@@ -1057,7 +1059,7 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
     if (num_unlocked == num_successfull_locks)
       break;
 
-    if (dest_filter(*dest))
+    if (dest_filter(dest))
     {
       dest->second->lock.WriteUnlock();
       ++num_unlocked;
@@ -1072,7 +1074,7 @@ ClientPushResult BrokerCore::PushToAllControllers(BrokerClient::Handle sender_ha
   // Push to every controller in controllers_
   auto first_dest = controllers_.begin();
   auto last_dest = controllers_.end();
-  auto dest_filter = [](auto& /*dest*/) { return true; };
+  auto dest_filter = [](const RptControllerMap::iterator& /*dest*/) { return true; };
   return PushToRptClients(sender_handle, msg, first_dest, last_dest, dest_filter);
 }
 
@@ -1081,7 +1083,7 @@ ClientPushResult BrokerCore::PushToAllDevices(BrokerClient::Handle sender_handle
   // Push to every device in devices_
   auto first_dest = devices_.begin();
   auto last_dest = devices_.end();
-  auto dest_filter = [](auto& /*dest*/) { return true; };
+  auto dest_filter = [](const RptDeviceMap::iterator& /*dest*/) { return true; };
   return PushToRptClients(sender_handle, msg, first_dest, last_dest, dest_filter);
 }
 
@@ -1092,7 +1094,7 @@ ClientPushResult BrokerCore::PushToManuSpecificDevices(BrokerClient::Handle send
   // Push to each device in devices_ that matches manu
   auto first_dest = devices_.begin();
   auto last_dest = devices_.end();
-  auto dest_filter = [&](auto& dest) { return (dest.second->uid.manu == manu); };
+  auto dest_filter = [&](const RptDeviceMap::iterator& dest) { return (dest->second->uid.manu == manu); };
   return PushToRptClients(sender_handle, msg, first_dest, last_dest, dest_filter);
 }
 

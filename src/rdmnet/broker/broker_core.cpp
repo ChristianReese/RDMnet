@@ -991,12 +991,14 @@ void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const Rdmne
     HandleRPTClientBadPushResult(rptmsg->header, push_result, throttle);
 }
 
+// TODO: See if there's a better / less complex interface for this (instead of two iters + lambda) (might involve
+// using features from a newer C++ standard, e.g. range/view)
 template <class InputIt, class FilterFunction>
-ClientPushResult PushToClients(BrokerClient::Handle sender_handle,
-                               const RdmnetMessage* msg,
-                               InputIt              first_dest,
-                               InputIt              last_dest,
-                               FilterFunction       dest_filter)
+ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
+                                  const RdmnetMessage* msg,
+                                  InputIt              first_dest,
+                                  InputIt              last_dest,
+                                  FilterFunction       dest_filter)
 {
   ClientPushResult result = ClientPushResult::Ok;
 
@@ -1062,21 +1064,31 @@ ClientPushResult PushToClients(BrokerClient::Handle sender_handle,
 
 ClientPushResult BrokerCore::PushToAllControllers(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
 {
-  return PushToClients(sender_handle, msg, controllers_.begin(), controllers_.end(),
-                       [](auto& /*dest*/) { return true; });
+  // Push to every controller in controllers_
+  auto first_dest = controllers_.begin();
+  auto last_dest = controllers_.end();
+  auto dest_filter = [](auto& /*dest*/) { return true; };
+  return PushToRptClients(sender_handle, msg, first_dest, last_dest, dest_filter);
 }
 
 ClientPushResult BrokerCore::PushToAllDevices(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
 {
-  return PushToClients(sender_handle, msg, devices_.begin(), devices_.end(), [](auto& /*dest*/) { return true; });
+  // Push to every device in devices_
+  auto first_dest = devices_.begin();
+  auto last_dest = devices_.end();
+  auto dest_filter = [](auto& /*dest*/) { return true; };
+  return PushToRptClients(sender_handle, msg, first_dest, last_dest, dest_filter);
 }
 
 ClientPushResult BrokerCore::PushToManuSpecificDevices(BrokerClient::Handle sender_handle,
                                                        const RdmnetMessage* msg,
                                                        uint16_t             manu)
 {
-  return PushToClients(sender_handle, msg, devices_.begin(), devices_.end(),
-                       [&](auto& dest) { return (dest.second->uid.manu == manu); });
+  // Push to each device in devices_ that matches manu
+  auto first_dest = devices_.begin();
+  auto last_dest = devices_.end();
+  auto dest_filter = [&](auto& dest) { return (dest.second->uid.manu == manu); };
+  return PushToRptClients(sender_handle, msg, first_dest, last_dest, dest_filter);
 }
 
 ClientPushResult BrokerCore::PushToSpecificRptClient(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
@@ -1085,7 +1097,10 @@ ClientPushResult BrokerCore::PushToSpecificRptClient(BrokerClient::Handle sender
 
   auto dest_client = FindRptClient(rptmsg->header.dest_uid);
   if (dest_client != rpt_clients_.end())
-    return PushToClients(sender_handle, msg, dest_client, std::next(dest_client), [](auto& /*dest*/) { return true; });
+  {
+    ClientWriteGuard client_write(*dest_client->second);
+    return dest_client->second->Push(sender_handle, msg->sender_cid, *rptmsg);
+  }
 
   return ClientPushResult::Error;
 }

@@ -626,12 +626,11 @@ void BrokerCore::HandleSocketClosed(BrokerClient::Handle client_handle, bool /*g
   MarkClientForDestruction(client_handle, ClientDestroyAction::MarkSocketInvalid());
 }
 
-void BrokerCore::HandleSocketMessageReceived(BrokerClient::Handle client_handle,
-                                             const RdmnetMessage& message,
-                                             bool&                throttle)
+HandleMessageResult BrokerCore::HandleSocketMessageReceived(BrokerClient::Handle client_handle,
+                                                            const RdmnetMessage& message)
 {
-  // By default, don't throttle. Only certain cases require it.
-  throttle = false;
+  // Assume the next message should be received by default. Only certain cases require retrying/throttling.
+  HandleMessageResult result = HandleMessageResult::kGetNextMessage;
 
   // Any well-formed Root Layer PDU message resets the heartbeat timer.
   ResetClientHeartbeatTimer(client_handle);
@@ -664,13 +663,15 @@ void BrokerCore::HandleSocketMessageReceived(BrokerClient::Handle client_handle,
     }
 
     case ACN_VECTOR_ROOT_RPT:
-      ProcessRPTMessage(client_handle, &message, throttle);
+      result = ProcessRPTMessage(client_handle, &message);
       break;
 
     default:
       BROKER_LOG_DEBUG("Received Root Layer PDU with unknown or unhandled vector %d", message.vector);
       break;
   }
+
+  return result;
 }
 
 void BrokerCore::ProcessConnectRequest(BrokerClient::Handle client_handle, const BrokerClientConnectMsg* cmsg)
@@ -843,9 +844,11 @@ bool BrokerCore::ResolveNewClientUid(BrokerClient::Handle     client_handle,
   }
 }
 
-void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle)
+HandleMessageResult BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg)
 {
   etcpal::ReadGuard clients_read(client_lock_);
+
+  HandleMessageResult result = HandleMessageResult::kGetNextMessage;
 
   const RptMessage* rptmsg = RDMNET_GET_RPT_MSG(msg);
   bool              route_msg = false;
@@ -869,7 +872,7 @@ void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const Rdm
             RPTController* controller = static_cast<RPTController*>(rptcli);
             if (!IsValidControllerDestinationUID(rptmsg->header.dest_uid))
             {
-              SendStatus(controller, rptmsg->header, kRptStatusUnknownRptUid, throttle);
+              result = SendStatus(controller, rptmsg->header, kRptStatusUnknownRptUid);
               BROKER_LOG_DEBUG(
                   "Received Request PDU addressed to invalid or not found UID %04x:%08x from Controller %d",
                   rptmsg->header.dest_uid.manu, rptmsg->header.dest_uid.id, client_handle);
@@ -877,7 +880,7 @@ void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const Rdm
             else if (RPT_GET_RDM_BUF_LIST(rptmsg)->num_rdm_buffers > 1)
             {
               // There should only ever be one RDM command in an RPT request.
-              SendStatus(controller, rptmsg->header, kRptStatusInvalidMessage, throttle);
+              result = SendStatus(controller, rptmsg->header, kRptStatusInvalidMessage);
               BROKER_LOG_DEBUG(
                   "Received Request PDU from Controller %d which incorrectly contains multiple RDM Command PDUs",
                   client_handle);
@@ -944,12 +947,12 @@ void BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_handle, const Rdm
   }
 
   if (route_msg)
-  {
-    RouteRPTMessage(client_handle, msg, throttle);
-  }
+    result = RouteRPTMessage(client_handle, msg);
+
+  return result;
 }
 
-void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg, bool& throttle)
+HandleMessageResult BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg)
 {
   const RptMessage* rptmsg = RDMNET_GET_RPT_MSG(msg);
   uint16_t          device_manu;
@@ -987,8 +990,10 @@ void BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const Rdmne
     }
   }
 
-  if (push_result != ClientPushResult::Ok)
-    HandleRPTClientBadPushResult(rptmsg->header, push_result, throttle);
+  if (push_result == ClientPushResult::Ok)
+    return HandleMessageResult::kGetNextMessage;
+
+  return HandleRPTClientBadPushResult(rptmsg->header, push_result);
 }
 
 // TODO: See if there's a better / less complex interface for this (instead of two iters + lambda) (might involve
@@ -1114,7 +1119,7 @@ BrokerCore::RptClientMap::iterator BrokerCore::FindRptClient(const RdmUid& uid)
   return rpt_clients_.end();
 }
 
-void BrokerCore::HandleRPTClientBadPushResult(const RptHeader& header, ClientPushResult result, bool& throttle)
+HandleMessageResult BrokerCore::HandleRPTClientBadPushResult(const RptHeader& header, ClientPushResult result)
 {
   std::string dest_type("Unknown");
   bool        not_found = false;
@@ -1147,20 +1152,22 @@ void BrokerCore::HandleRPTClientBadPushResult(const RptHeader& header, ClientPus
     BROKER_LOG_ERR("Could not route message from RPT Client UID %04x:%08x: Destination UID %04x:%08x not found.",
                    header.source_uid.manu, header.source_uid.id, header.dest_uid.manu, header.dest_uid.id);
   }
-  else if (result == ClientPushResult::QueueFull)
-  {
-    BROKER_LOG_DEBUG("Couldn't send message to UID %04x:%08x (%s): one or more queues are full. Retrying later.",
-                     header.dest_uid.manu, header.dest_uid.id, dest_type.c_str());
-
-    // Full queue, so delay processing of the message.
-    throttle = true;
-  }
   else if (result == ClientPushResult::Error)
   {
     BROKER_LOG_CRIT("Error sending message to UID %04x:%08x (%s): internal error occurred!", header.dest_uid.manu,
                     header.dest_uid.id, dest_type.c_str());
     // TODO figure out what to do here... probably disconnect the client.
   }
+  else if (result == ClientPushResult::QueueFull)
+  {
+    BROKER_LOG_DEBUG("Couldn't send message to UID %04x:%08x (%s): one or more queues are full. Retrying later.",
+                     header.dest_uid.manu, header.dest_uid.id, dest_type.c_str());
+
+    // Full queue, so delay processing of the message.
+    return HandleMessageResult::kRetryLater;
+  }
+
+  return HandleMessageResult::kGetNextMessage;
 }
 
 void BrokerCore::ResetClientHeartbeatTimer(BrokerClient::Handle client_handle)
@@ -1247,11 +1254,10 @@ void BrokerCore::SendClientsRemoved(std::vector<RdmnetRptClientEntry>& entries)
   }
 }
 
-void BrokerCore::SendStatus(RPTController*     controller,
-                            const RptHeader&   header,
-                            rpt_status_code_t  status_code,
-                            bool&              throttle,
-                            const std::string& status_str)
+HandleMessageResult BrokerCore::SendStatus(RPTController*     controller,
+                                           const RptHeader&   header,
+                                           rpt_status_code_t  status_code,
+                                           const std::string& status_str)
 {
   RptHeader new_header;
   new_header.dest_endpoint_id = header.source_endpoint_id;
@@ -1271,9 +1277,8 @@ void BrokerCore::SendStatus(RPTController*     controller,
   if (push_res == ClientPushResult::Ok)
   {
     BROKER_LOG_WARNING("Sending RPT Status code %d to Controller %s", status_code, controller->cid.ToString().c_str());
+    return HandleMessageResult::kGetNextMessage;
   }
-  else
-  {
-    HandleRPTClientBadPushResult(new_header, push_res, throttle);
-  }
+
+  return HandleRPTClientBadPushResult(new_header, push_res);
 }

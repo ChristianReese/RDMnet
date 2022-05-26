@@ -28,6 +28,16 @@
 // The corresponding sources for this file are found in the platform-specific subfolders for each
 // Broker platform.
 
+/// @brief A status returned by HandleSocketMessageReceived.
+///
+/// This is used to determine if the worker thread should move on to the next message, or call
+/// HandleSocketMessageReceived with the same message later (potentially throttling the TCP connection).
+enum class HandleMessageResult
+{
+  kRetryLater,
+  kGetNextMessage
+};
+
 class BrokerSocketNotify
 {
 public:
@@ -39,11 +49,10 @@ public:
   ///
   /// @param[in] handle The client handle on which data was received.
   /// @param[in] message The parsed message which was received on the socket.
-  /// @param[out] throttle Set to true to delay this message to a future notification. Set to false if the message has
-  /// been processed.
-  virtual void HandleSocketMessageReceived(BrokerClient::Handle handle,
-                                           const RdmnetMessage& message,
-                                           bool&                throttle) = 0;
+  /// @return #kRetryLater: The message couldn't be processed and should be delayed to a future notification.
+  /// @return #kGetNextMessage: Ready to move on to the next message.
+  virtual HandleMessageResult HandleSocketMessageReceived(BrokerClient::Handle handle,
+                                                          const RdmnetMessage& message) = 0;
 
   /// @brief A socket was closed remotely.
   ///

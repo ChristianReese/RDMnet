@@ -1003,16 +1003,31 @@ ClientPushResult PushToClients(BrokerClient::Handle sender_handle,
   const RptMessage* rptmsg = RDMNET_GET_RPT_MSG(msg);
 
   // Lock all destination clients
-  std::for_each(first_dest, last_dest, [&](auto& dest) {
-    if (dest_filter(dest))
-      dest.second->lock.WriteLock();
-  });
+  int num_successfull_locks = 0;
+  for (auto dest = first_dest; dest != last_dest; ++dest)
+  {
+    if (dest_filter(*dest))
+    {
+      if (dest->second->lock.WriteLock())
+      {
+        ++num_successfull_locks;
+      }
+      else
+      {
+        result = ClientPushResult::Error;
+        break;
+      }
+    }
+  }
 
-  // Check if any destination client queues are full
-  std::for_each(first_dest, last_dest, [&](auto& dest) {
-    if (dest_filter(dest) && !dest.second->HasRoomToPush())
-      result = ClientPushResult::QueueFull;
-  });
+  // If all locks succeeded, check if any destination client queues are full
+  if (result == ClientPushResult::Ok)
+  {
+    std::for_each(first_dest, last_dest, [&](auto& dest) {
+      if (dest_filter(dest) && !dest.second->HasRoomToPush())
+        result = ClientPushResult::QueueFull;
+    });
+  }
 
   // If no queues are full, push to all queues
   if (result == ClientPushResult::Ok)
@@ -1028,11 +1043,19 @@ ClientPushResult PushToClients(BrokerClient::Handle sender_handle,
     });
   }
 
-  // Unlock all destination clients
-  std::for_each(first_dest, last_dest, [&](auto& dest) {
-    if (dest_filter(dest))
-      dest.second->lock.WriteUnlock();
-  });
+  // Unlock all destination clients that locked successfully
+  int num_unlocked = 0;
+  for (auto dest = first_dest; dest != last_dest; ++dest)
+  {
+    if (num_unlocked == num_successfull_locks)
+      break;
+
+    if (dest_filter(*dest))
+    {
+      dest->second->lock.WriteUnlock();
+      ++num_unlocked;
+    }
+  }
 
   return result;
 }

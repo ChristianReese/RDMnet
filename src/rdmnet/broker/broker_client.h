@@ -138,7 +138,9 @@ class BrokerClient
 {
 public:
   using Handle = int;
+
   static constexpr Handle kInvalidHandle = -1;
+  static constexpr size_t kLimitlessQueueSize = 0u;
 
   BrokerClient(Handle new_handle, etcpal_socket_t new_socket, size_t new_max_q_size = 0)
       : handle(new_handle), socket(new_socket), max_q_size(new_max_q_size)
@@ -183,8 +185,6 @@ protected:
                                       const ClientDestroyAction& destroy_action);
 
   virtual void ClearAllQueues() { broker_msgs_.clear(); }
-
-  static constexpr size_t kLimitlessQueueSize = 0u;
 
   std::deque<MessageRef> broker_msgs_;
   etcpal::Timer          send_timer_{std::chrono::seconds(E133_TCP_HEARTBEAT_INTERVAL_SEC)};

@@ -996,13 +996,10 @@ HandleMessageResult BrokerCore::RouteRPTMessage(BrokerClient::Handle client_hand
   return HandleRPTClientBadPushResult(rptmsg->header, push_result);
 }
 
-// TODO: See if there's a better / less complex interface for this (instead of two iters + lambda) (might involve
-// using features from a newer C++ standard, e.g. range/view)
-template <class InputIt, class FilterFunction>
+template <class ClientMap, class FilterFunction>
 ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
                                   const RdmnetMessage* msg,
-                                  InputIt              first_dest,
-                                  InputIt              last_dest,
+                                  ClientMap&           dest_clients,
                                   FilterFunction       dest_filter)
 {
   ClientPushResult result = ClientPushResult::Ok;
@@ -1011,7 +1008,7 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
 
   // Lock all destination clients
   int num_successfull_locks = 0;
-  for (auto dest = first_dest; dest != last_dest; ++dest)
+  for (auto dest = dest_clients.begin(); dest != dest_clients.end(); ++dest)
   {
     if (dest_filter(dest))
     {
@@ -1030,7 +1027,7 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
   // If all locks succeeded, check if any destination client queues are full
   if (result == ClientPushResult::Ok)
   {
-    for (auto dest = first_dest; dest != last_dest; ++dest)
+    for (auto dest = dest_clients.begin(); dest != dest_clients.end(); ++dest)
     {
       if (dest_filter(dest) && !dest->second->HasRoomToPush())
         result = ClientPushResult::QueueFull;
@@ -1040,7 +1037,7 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
   // If no queues are full, push to all queues
   if (result == ClientPushResult::Ok)
   {
-    for (auto dest = first_dest; dest != last_dest; ++dest)
+    for (auto dest = dest_clients.begin(); dest != dest_clients.end(); ++dest)
     {
       if (dest_filter(dest))
       {
@@ -1054,7 +1051,7 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
 
   // Unlock all destination clients that locked successfully
   int num_unlocked = 0;
-  for (auto dest = first_dest; dest != last_dest; ++dest)
+  for (auto dest = dest_clients.begin(); dest != dest_clients.end(); ++dest)
   {
     if (num_unlocked == num_successfull_locks)
       break;
@@ -1072,19 +1069,15 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
 ClientPushResult BrokerCore::PushToAllControllers(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
 {
   // Push to every controller in controllers_
-  auto first_dest = controllers_.begin();
-  auto last_dest = controllers_.end();
   auto dest_filter = [](const RptControllerMap::iterator& /*dest*/) { return true; };
-  return PushToRptClients(sender_handle, msg, first_dest, last_dest, dest_filter);
+  return PushToRptClients(sender_handle, msg, controllers_, dest_filter);
 }
 
 ClientPushResult BrokerCore::PushToAllDevices(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
 {
   // Push to every device in devices_
-  auto first_dest = devices_.begin();
-  auto last_dest = devices_.end();
   auto dest_filter = [](const RptDeviceMap::iterator& /*dest*/) { return true; };
-  return PushToRptClients(sender_handle, msg, first_dest, last_dest, dest_filter);
+  return PushToRptClients(sender_handle, msg, devices_, dest_filter);
 }
 
 ClientPushResult BrokerCore::PushToManuSpecificDevices(BrokerClient::Handle sender_handle,
@@ -1092,10 +1085,8 @@ ClientPushResult BrokerCore::PushToManuSpecificDevices(BrokerClient::Handle send
                                                        uint16_t             manu)
 {
   // Push to each device in devices_ that matches manu
-  auto first_dest = devices_.begin();
-  auto last_dest = devices_.end();
   auto dest_filter = [&](const RptDeviceMap::iterator& dest) { return (dest->second->uid.manu == manu); };
-  return PushToRptClients(sender_handle, msg, first_dest, last_dest, dest_filter);
+  return PushToRptClients(sender_handle, msg, devices_, dest_filter);
 }
 
 ClientPushResult BrokerCore::PushToSpecificRptClient(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)

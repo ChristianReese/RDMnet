@@ -1007,14 +1007,14 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
   const RptMessage* rptmsg = RDMNET_GET_RPT_MSG(msg);
 
   // Lock all destination clients
-  int num_successfull_locks = 0;
+  int num_successful_locks = 0;
   for (auto dest = dest_clients.begin(); dest != dest_clients.end(); ++dest)
   {
     if (dest_filter(dest))
     {
       if (dest->second->lock.WriteLock())
       {
-        ++num_successfull_locks;
+        ++num_successful_locks;
       }
       else
       {
@@ -1053,7 +1053,7 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
   int num_unlocked = 0;
   for (auto dest = dest_clients.begin(); dest != dest_clients.end(); ++dest)
   {
-    if (num_unlocked == num_successfull_locks)
+    if (num_unlocked == num_successful_locks)
       break;
 
     if (dest_filter(dest))

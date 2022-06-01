@@ -952,6 +952,7 @@ HandleMessageResult BrokerCore::ProcessRPTMessage(BrokerClient::Handle client_ha
   return result;
 }
 
+// Needs read lock on client_lock_
 HandleMessageResult BrokerCore::RouteRPTMessage(BrokerClient::Handle client_handle, const RdmnetMessage* msg)
 {
   const RptMessage* rptmsg = RDMNET_GET_RPT_MSG(msg);
@@ -1066,6 +1067,7 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
   return result;
 }
 
+// Needs read lock on client_lock_
 ClientPushResult BrokerCore::PushToAllControllers(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
 {
   // Push to every controller in controllers_
@@ -1073,6 +1075,7 @@ ClientPushResult BrokerCore::PushToAllControllers(BrokerClient::Handle sender_ha
   return PushToRptClients(sender_handle, msg, controllers_, dest_filter);
 }
 
+// Needs read lock on client_lock_
 ClientPushResult BrokerCore::PushToAllDevices(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
 {
   // Push to every device in devices_
@@ -1080,6 +1083,7 @@ ClientPushResult BrokerCore::PushToAllDevices(BrokerClient::Handle sender_handle
   return PushToRptClients(sender_handle, msg, devices_, dest_filter);
 }
 
+// Needs read lock on client_lock_
 ClientPushResult BrokerCore::PushToManuSpecificDevices(BrokerClient::Handle sender_handle,
                                                        const RdmnetMessage* msg,
                                                        uint16_t             manu)
@@ -1089,6 +1093,7 @@ ClientPushResult BrokerCore::PushToManuSpecificDevices(BrokerClient::Handle send
   return PushToRptClients(sender_handle, msg, devices_, dest_filter);
 }
 
+// Needs read lock on client_lock_
 ClientPushResult BrokerCore::PushToSpecificRptClient(BrokerClient::Handle sender_handle, const RdmnetMessage* msg)
 {
   const RptMessage* rptmsg = RDMNET_GET_RPT_MSG(msg);
@@ -1103,6 +1108,7 @@ ClientPushResult BrokerCore::PushToSpecificRptClient(BrokerClient::Handle sender
   return ClientPushResult::Error;
 }
 
+// Needs read lock on client_lock_
 BrokerCore::RptClientMap::iterator BrokerCore::FindRptClient(const RdmUid& uid)
 {
   BrokerClient::Handle handle;
@@ -1112,6 +1118,7 @@ BrokerCore::RptClientMap::iterator BrokerCore::FindRptClient(const RdmUid& uid)
   return rpt_clients_.end();
 }
 
+// Needs read lock on client_lock_
 HandleMessageResult BrokerCore::HandleRPTClientBadPushResult(const RptHeader& header, ClientPushResult result)
 {
   std::string dest_type("Unknown");

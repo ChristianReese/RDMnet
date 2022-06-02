@@ -26,12 +26,12 @@
 
 bool BrokerClient::HasRoomToPush()
 {
-  return (max_q_size == kLimitlessQueueSize) || (broker_msgs_.size() < max_q_size);
+  return (max_q_size_ == kLimitlessQueueSize) || (broker_msgs_.size() < max_q_size_);
 }
 
 ClientPushResult BrokerClient::Push(const etcpal::Uuid& sender_cid, const BrokerMessage& msg)
 {
-  if (marked_for_destruction)
+  if (marked_for_destruction_)
     return ClientPushResult::Error;
   if (!HasRoomToPush())
     return ClientPushResult::QueueFull;
@@ -45,7 +45,7 @@ bool BrokerClient::Send(const etcpal::Uuid& broker_cid)
   if (!broker_msgs_.empty())
   {
     MessageRef& msg = broker_msgs_.front();
-    int         res = etcpal_send(socket, &msg.data.get()[msg.size_sent], msg.size - msg.size_sent, 0);
+    int         res = etcpal_send(socket_, &msg.data.get()[msg.size_sent], msg.size - msg.size_sent, 0);
     if (res >= 0)
     {
       msg.size_sent += res;
@@ -75,12 +75,12 @@ void BrokerClient::MarkForDestruction(const etcpal::Uuid&        broker_cid,
   // Clear out the existing queue
   ClearAllQueues();
   ApplyDestroyAction(broker_cid, broker_uid, destroy_action);
-  marked_for_destruction = true;
+  marked_for_destruction_ = true;
 }
 
 ClientPushResult BrokerClient::PushPostSizeCheck(const etcpal::Uuid& sender_cid, const BrokerMessage& msg)
 {
-  if (marked_for_destruction)
+  if (marked_for_destruction_)
     return ClientPushResult::Error;
 
   ClientPushResult res = ClientPushResult::Error;
@@ -148,7 +148,7 @@ bool BrokerClient::SendNull(const etcpal::Uuid& broker_cid)
 {
   auto   send_buf = std::unique_ptr<uint8_t[]>(new uint8_t[BROKER_NULL_FULL_MSG_SIZE]);
   size_t send_size = rc_broker_pack_null(send_buf.get(), BROKER_NULL_FULL_MSG_SIZE, &broker_cid.get());
-  return (etcpal_send(socket, send_buf.get(), send_size, 0) >= 0);
+  return (etcpal_send(socket_, send_buf.get(), send_size, 0) >= 0);
 }
 
 void BrokerClient::ApplyDestroyAction(const etcpal::Uuid&        broker_cid,
@@ -174,7 +174,7 @@ void BrokerClient::ApplyDestroyAction(const etcpal::Uuid&        broker_cid,
     }
     break;
     case ClientDestroyAction::Action::MarkSocketInvalid:
-      socket = ETCPAL_SOCKET_INVALID;
+      socket_ = ETCPAL_SOCKET_INVALID;
       break;
     default:
       break;
@@ -183,12 +183,12 @@ void BrokerClient::ApplyDestroyAction(const etcpal::Uuid&        broker_cid,
 
 bool RPTClient::HasRoomToPush()
 {
-  return (broker_msgs_.size() + status_msgs_.size()) < max_q_size;
+  return (broker_msgs_.size() + status_msgs_.size()) < max_q_size_;
 }
 
 ClientPushResult RPTClient::Push(const etcpal::Uuid& sender_cid, const BrokerMessage& msg)
 {
-  if (marked_for_destruction)
+  if (marked_for_destruction_)
     return ClientPushResult::Error;
   if (!HasRoomToPush())
     return ClientPushResult::QueueFull;
@@ -224,15 +224,15 @@ void RPTClient::ClearAllQueues()
 
 bool RPTController::HasRoomToPush()
 {
-  return ((max_q_size == kLimitlessQueueSize) ||
-          (status_msgs_.size() + broker_msgs_.size() + rpt_msgs_.size()) < max_q_size);
+  return ((max_q_size_ == kLimitlessQueueSize) ||
+          (status_msgs_.size() + broker_msgs_.size() + rpt_msgs_.size()) < max_q_size_);
 }
 
 ClientPushResult RPTController::Push(BrokerClient::Handle /*from_client*/,
                                      const etcpal::Uuid& sender_cid,
                                      const RptMessage&   msg)
 {
-  if (marked_for_destruction)
+  if (marked_for_destruction_)
     return ClientPushResult::Error;
   if (!HasRoomToPush())
     return ClientPushResult::QueueFull;
@@ -288,7 +288,7 @@ ClientPushResult RPTController::Push(BrokerClient::Handle /*from_client*/,
 
 ClientPushResult RPTController::Push(const etcpal::Uuid& sender_cid, const BrokerMessage& msg)
 {
-  if (marked_for_destruction)
+  if (marked_for_destruction_)
     return ClientPushResult::Error;
   if (!HasRoomToPush())
     return ClientPushResult::QueueFull;
@@ -298,7 +298,7 @@ ClientPushResult RPTController::Push(const etcpal::Uuid& sender_cid, const Broke
 
 ClientPushResult RPTController::Push(const etcpal::Uuid& sender_cid, const RptHeader& header, const RptStatusMsg& msg)
 {
-  if (marked_for_destruction)
+  if (marked_for_destruction_)
     return ClientPushResult::Error;
   if (!HasRoomToPush())
     return ClientPushResult::QueueFull;
@@ -331,7 +331,7 @@ bool RPTController::Send(const etcpal::Uuid& broker_cid)
   // Try to send the message.
   if (msg && q)
   {
-    int res = etcpal_send(socket, &msg->data.get()[msg->size_sent], msg->size - msg->size_sent, 0);
+    int res = etcpal_send(socket_, &msg->data.get()[msg->size_sent], msg->size - msg->size_sent, 0);
     if (res >= 0)
     {
       msg->size_sent += res;
@@ -364,15 +364,15 @@ void RPTController::ClearAllQueues()
 
 bool RPTDevice::HasRoomToPush()
 {
-  return ((max_q_size == kLimitlessQueueSize) ||
-          (status_msgs_.size() + broker_msgs_.size() + rpt_msgs_.size()) < max_q_size);
+  return ((max_q_size_ == kLimitlessQueueSize) ||
+          (status_msgs_.size() + broker_msgs_.size() + rpt_msgs_.size()) < max_q_size_);
 }
 
 ClientPushResult RPTDevice::Push(BrokerClient::Handle from_client,
                                  const etcpal::Uuid&  sender_cid,
                                  const RptMessage&    msg)
 {
-  if (marked_for_destruction)
+  if (marked_for_destruction_)
     return ClientPushResult::Error;
   if (!HasRoomToPush())
     return ClientPushResult::QueueFull;
@@ -409,7 +409,7 @@ ClientPushResult RPTDevice::Push(BrokerClient::Handle from_client,
 
 ClientPushResult RPTDevice::Push(const etcpal::Uuid& sender_cid, const BrokerMessage& msg)
 {
-  if (marked_for_destruction)
+  if (marked_for_destruction_)
     return ClientPushResult::Error;
   if (!HasRoomToPush())
     return ClientPushResult::QueueFull;
@@ -439,7 +439,7 @@ bool RPTDevice::Send(const etcpal::Uuid& broker_cid)
   // Try to send the message.
   if (msg)
   {
-    int res = etcpal_send(socket, &msg->data.get()[msg->size_sent], msg->size - msg->size_sent, 0);
+    int res = etcpal_send(socket_, &msg->data.get()[msg->size_sent], msg->size - msg->size_sent, 0);
     if (res >= 0)
     {
       msg->size_sent += res;

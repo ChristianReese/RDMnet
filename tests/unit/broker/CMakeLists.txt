@@ -4,7 +4,7 @@ rdmnet_add_unit_test(test_rdmnet_broker
   # RDMnet Broker lib unit test sources
   broker_mocks.h
   test_broker_client.cpp
-  test_broker_core_connect_handling
+  test_broker_core_connect_handling.cpp
   test_broker_core_startup.cpp
   test_broker_message_handling.cpp
   test_broker_discovery.cpp

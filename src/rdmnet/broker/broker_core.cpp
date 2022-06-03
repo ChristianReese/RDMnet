@@ -1254,6 +1254,7 @@ void BrokerCore::SendClientsRemoved(std::vector<RdmnetRptClientEntry>& entries)
   }
 }
 
+// Needs read lock on client_lock_
 HandleMessageResult BrokerCore::SendStatus(RPTController*     controller,
                                            const RptHeader&   header,
                                            rpt_status_code_t  status_code,

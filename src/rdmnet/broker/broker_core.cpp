@@ -161,7 +161,7 @@ bool BrokerCore::IsDeviceManuBroadcastUID(const RdmUid& uid, uint16_t& manu)
 
 bool BrokerCore::IsValidControllerDestinationUID(const RdmUid& uid) const
 {
-  if (RDMNET_UID_IS_CONTROLLER_BROADCAST(&uid) || (uid == my_uid_))
+  if (RDMNET_UID_IS_DEVICE_BROADCAST(&uid) || RDMNET_UID_IS_DEVICE_MANU_BROADCAST(&uid) || (uid == my_uid_))
     return true;
 
   // TODO this should only check devices
@@ -1089,7 +1089,7 @@ ClientPushResult BrokerCore::PushToManuSpecificDevices(BrokerClient::Handle send
                                                        uint16_t             manu)
 {
   // Push to each device in devices_ that matches manu
-  auto dest_filter = [&](const RptDeviceMap::iterator& dest) { return (dest->second->uid_.manu == manu); };
+  auto dest_filter = [&](const RptDeviceMap::iterator& dest) { return ((dest->second->uid_.manu & 0x7fffu) == manu); };
   return PushToRptClients(sender_handle, msg, devices_, dest_filter);
 }
 

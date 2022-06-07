@@ -1100,6 +1100,7 @@ ClientPushResult BrokerCore::PushToSpecificRptClient(BrokerClient::Handle sender
   auto dest_client = FindRptClient(rptmsg->header.dest_uid);
   if (dest_client != rpt_clients_.end())
   {
+    // For performance, since this is a single client, lock and call Push directly instead of calling PushToRptClients.
     ClientWriteGuard client_write(*dest_client->second);
     return dest_client->second->Push(sender_handle, msg->sender_cid, *rptmsg);
   }

@@ -55,6 +55,10 @@ protected:
     etcpal_reset_all_fakes();
     rdmnet_mock_core_reset_and_init();
 
+    etcpal_send_fake.custom_fake = [](etcpal_socket_t, const void*, size_t data_size, int) -> int {
+      return (int)data_size;
+    };
+
     auto settings = DefaultBrokerSettings();
     settings.limits.controller_messages = kMaxControllerMessages;
     settings.limits.device_messages = kMaxDeviceMessages;
@@ -62,7 +66,12 @@ protected:
   }
 
   BrokerClient::Handle AddClient(const etcpal::Uuid& cid, rpt_client_type_t client_type, uint16_t manu);
-  void TestMessageLimit(BrokerClient::Handle sender_handle, const RdmnetMessage& msg, unsigned int limit);
+  void                 TestMessageLimit(BrokerClient::Handle sender_handle,
+                                        const RdmnetMessage& msg,
+                                        unsigned int         num_remaining_messages_allowed);
+  void                 TestMessageLimitWithHarvest(BrokerClient::Handle sender_handle,
+                                                   const RdmnetMessage& msg,
+                                                   unsigned int         num_remaining_messages_allowed);
 };
 
 BrokerClient::Handle TestBrokerCoreRptHandling::AddClient(const etcpal::Uuid& cid,
@@ -77,28 +86,38 @@ BrokerClient::Handle TestBrokerCoreRptHandling::AddClient(const etcpal::Uuid& ci
 
   RdmnetMessage connect_msg = testmsgs::ClientConnect(cid, E133_DEFAULT_SCOPE, type, manu);
 
-  RESET_FAKE(etcpal_send);
-  etcpal_send_fake.custom_fake = [](etcpal_socket_t, const void*, size_t data_size, int) -> int {
-    return (int)data_size;
-  };
   mocks_.broker_callbacks->HandleSocketMessageReceived(new_conn_handle, connect_msg);
   EXPECT_TRUE(mocks_.broker_callbacks->ServiceClients());
-  RESET_FAKE(etcpal_send);
 
   return new_conn_handle;
 }
 
 void TestBrokerCoreRptHandling::TestMessageLimit(BrokerClient::Handle sender_handle,
                                                  const RdmnetMessage& msg,
-                                                 unsigned int         limit)
+                                                 unsigned int         num_remaining_messages_allowed)
 {
-  for (unsigned int i = 0u; i < limit; ++i)
+  static constexpr int kNumRetriesToTest = 3;
+
+  for (unsigned int i = 0u; i < num_remaining_messages_allowed; ++i)
   {
     EXPECT_EQ(mocks_.broker_callbacks->HandleSocketMessageReceived(sender_handle, msg),
               HandleMessageResult::kGetNextMessage);
   }
 
-  EXPECT_EQ(mocks_.broker_callbacks->HandleSocketMessageReceived(sender_handle, msg), HandleMessageResult::kRetryLater);
+  for (int i = 0; i < kNumRetriesToTest; ++i)
+  {
+    EXPECT_EQ(mocks_.broker_callbacks->HandleSocketMessageReceived(sender_handle, msg),
+              HandleMessageResult::kRetryLater);
+  }
+}
+
+void TestBrokerCoreRptHandling::TestMessageLimitWithHarvest(BrokerClient::Handle sender_handle,
+                                                            const RdmnetMessage& msg,
+                                                            unsigned int         num_remaining_messages_allowed)
+{
+  TestMessageLimit(sender_handle, msg, num_remaining_messages_allowed);
+  EXPECT_TRUE(mocks_.broker_callbacks->ServiceClients());  // Harvest (consume/send) a message from every queue
+  TestMessageLimit(sender_handle, msg, 1u);
 }
 
 TEST_F(TestBrokerCoreRptHandling, DeviceBroadcastThrottlesAtMaxLimit)
@@ -111,7 +130,7 @@ TEST_F(TestBrokerCoreRptHandling, DeviceBroadcastThrottlesAtMaxLimit)
   auto sender_handle = AddClient(etcpal::Uuid::OsPreferred(), kRPTClientTypeController, kTestManu1);
 
   auto test_cmd = TestRdmCommand::GetBroadcast(E120_DEVICE_INFO);
-  TestMessageLimit(sender_handle, test_cmd.msg, kMaxDeviceMessages);
+  TestMessageLimitWithHarvest(sender_handle, test_cmd.msg, kMaxDeviceMessages);
 
   testing::Mock::VerifyAndClearExpectations(mocks_.socket_mgr);
 }
@@ -126,7 +145,7 @@ TEST_F(TestBrokerCoreRptHandling, ControllerBroadcastThrottlesAtMaxLimit)
   auto sender_handle = AddClient(etcpal::Uuid::OsPreferred(), kRPTClientTypeDevice, kTestManu1);
 
   auto test_response = TestRdmResponse::GetResponseBroadcast(kTestControllerUid, E120_DEVICE_INFO);
-  TestMessageLimit(sender_handle, test_response.msg, kMaxControllerMessages);
+  TestMessageLimitWithHarvest(sender_handle, test_response.msg, kMaxControllerMessages);
 
   testing::Mock::VerifyAndClearExpectations(mocks_.socket_mgr);
 }
@@ -145,7 +164,7 @@ TEST_F(TestBrokerCoreRptHandling, DeviceManuBroadcastThrottlesAtMaxLimit)
 
   // Test manu2 message limit
   auto test_manu2_cmd = TestRdmCommand::GetManuBroadcast(kTestManu2, E120_DEVICE_INFO);
-  TestMessageLimit(sender_handle, test_manu2_cmd.msg, kMaxDeviceMessages);
+  TestMessageLimitWithHarvest(sender_handle, test_manu2_cmd.msg, kMaxDeviceMessages);
 
   // Verify no all-device broadcasts can be sent due to manu2 limit
   auto test_all_manu_cmd = TestRdmCommand::GetBroadcast(E120_DEVICE_INFO);
@@ -154,6 +173,10 @@ TEST_F(TestBrokerCoreRptHandling, DeviceManuBroadcastThrottlesAtMaxLimit)
   // Test manu1 message limit
   auto test_manu1_cmd = TestRdmCommand::GetManuBroadcast(kTestManu1, E120_DEVICE_INFO);
   TestMessageLimit(sender_handle, test_manu1_cmd.msg, kMaxDeviceMessages);
+
+  // Harvesting a message from each queue should allow one all-device broadcast
+  EXPECT_TRUE(mocks_.broker_callbacks->ServiceClients());
+  TestMessageLimit(sender_handle, test_all_manu_cmd.msg, 1u);
 
   testing::Mock::VerifyAndClearExpectations(mocks_.socket_mgr);
 }

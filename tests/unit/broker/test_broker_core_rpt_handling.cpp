@@ -62,7 +62,7 @@ protected:
   }
 
   BrokerClient::Handle AddClient(const etcpal::Uuid& cid, rpt_client_type_t client_type, uint16_t manu);
-  void                 TestMessageLimit(BrokerClient::Handle sender_handle, const RdmnetMessage& msg, size_t limit);
+  void TestMessageLimit(BrokerClient::Handle sender_handle, const RdmnetMessage& msg, unsigned int limit);
 };
 
 BrokerClient::Handle TestBrokerCoreRptHandling::AddClient(const etcpal::Uuid& cid,
@@ -90,9 +90,9 @@ BrokerClient::Handle TestBrokerCoreRptHandling::AddClient(const etcpal::Uuid& ci
 
 void TestBrokerCoreRptHandling::TestMessageLimit(BrokerClient::Handle sender_handle,
                                                  const RdmnetMessage& msg,
-                                                 size_t               limit)
+                                                 unsigned int         limit)
 {
-  for (size_t i = 0u; i < limit; ++i)
+  for (unsigned int i = 0u; i < limit; ++i)
   {
     EXPECT_EQ(mocks_.broker_callbacks->HandleSocketMessageReceived(sender_handle, msg),
               HandleMessageResult::kGetNextMessage);
@@ -103,9 +103,9 @@ void TestBrokerCoreRptHandling::TestMessageLimit(BrokerClient::Handle sender_han
 
 TEST_F(TestBrokerCoreRptHandling, DeviceBroadcastThrottlesAtMaxLimit)
 {
-  static constexpr size_t kNumDestinations = 3u;
+  static constexpr int kNumDestinations = 3u;
 
-  for (size_t i = 0u; i < kNumDestinations; ++i)
+  for (int i = 0u; i < kNumDestinations; ++i)
     AddClient(etcpal::Uuid::OsPreferred(), kRPTClientTypeDevice, kTestManu1);
 
   auto sender_handle = AddClient(etcpal::Uuid::OsPreferred(), kRPTClientTypeController, kTestManu1);
@@ -118,9 +118,9 @@ TEST_F(TestBrokerCoreRptHandling, DeviceBroadcastThrottlesAtMaxLimit)
 
 TEST_F(TestBrokerCoreRptHandling, ControllerBroadcastThrottlesAtMaxLimit)
 {
-  static constexpr size_t kNumDestinations = 3u;
+  static constexpr int kNumDestinations = 3u;
 
-  for (size_t i = 0u; i < kNumDestinations; ++i)
+  for (int i = 0u; i < kNumDestinations; ++i)
     AddClient(etcpal::Uuid::OsPreferred(), kRPTClientTypeController, kTestManu1);
 
   auto sender_handle = AddClient(etcpal::Uuid::OsPreferred(), kRPTClientTypeDevice, kTestManu1);
@@ -133,12 +133,12 @@ TEST_F(TestBrokerCoreRptHandling, ControllerBroadcastThrottlesAtMaxLimit)
 
 TEST_F(TestBrokerCoreRptHandling, DeviceManuBroadcastThrottlesAtMaxLimit)
 {
-  static constexpr size_t kNumDestinationsForManu1 = 5u;
-  static constexpr size_t kNumDestinationsForManu2 = 2u;
+  static constexpr int kNumDestinationsForManu1 = 5u;
+  static constexpr int kNumDestinationsForManu2 = 2u;
 
-  for (size_t i = 0u; i < kNumDestinationsForManu1; ++i)
+  for (int i = 0u; i < kNumDestinationsForManu1; ++i)
     AddClient(etcpal::Uuid::OsPreferred(), kRPTClientTypeDevice, kTestManu1);
-  for (size_t i = 0u; i < kNumDestinationsForManu2; ++i)
+  for (int i = 0u; i < kNumDestinationsForManu2; ++i)
     AddClient(etcpal::Uuid::OsPreferred(), kRPTClientTypeDevice, kTestManu2);
 
   auto sender_handle = AddClient(etcpal::Uuid::OsPreferred(), kRPTClientTypeController, kTestManu1);

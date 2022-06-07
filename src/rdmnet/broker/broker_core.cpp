@@ -1051,16 +1051,15 @@ ClientPushResult PushToRptClients(BrokerClient::Handle sender_handle,
   }
 
   // Unlock all destination clients that locked successfully
-  int num_unlocked = 0;
   for (auto dest = dest_clients.begin(); dest != dest_clients.end(); ++dest)
   {
-    if (num_unlocked == num_successful_locks)
+    if (num_successful_locks == 0)
       break;
 
     if (dest_filter(dest))
     {
       dest->second->lock_.WriteUnlock();
-      ++num_unlocked;
+      --num_successful_locks;
     }
   }
 

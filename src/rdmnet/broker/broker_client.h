@@ -250,7 +250,6 @@ struct EPTClient : public BrokerClient
 class RPTController : public RPTClient
 {
 public:
-  // TODO max queue size
   RPTController(size_t new_max_q_size, const RdmnetRptClientEntry& cli_entry, const BrokerClient& prev_client)
       : RPTClient(cli_entry, prev_client)
   {

@@ -116,8 +116,7 @@ TEST_F(TestBaseBrokerClient, HonorsMaxQSize)
 
 TEST_F(TestBaseBrokerClient, MaxQSizeInfinite)
 {
-  // Max Q Size of 0 should mean infinite
-  client_->max_q_size_ = 0;
+  client_->max_q_size_ = BrokerClient::kLimitlessQueueSize;
   GenericBrokerMessage msg;
 
   for (size_t i = 0; i < 1000; ++i)
@@ -314,8 +313,7 @@ TEST_F(TestBrokerClientRptController, HonorsMaxQSize)
 
 TEST_F(TestBrokerClientRptController, InfiniteMaxQSize)
 {
-  // Max Q Size of 0 should mean infinite
-  controller_->max_q_size_ = 0;
+  controller_->max_q_size_ = BrokerClient::kLimitlessQueueSize;
 
   GenericBrokerMessage broker_msg;
   for (size_t i = 0; i < 1000u; ++i)
@@ -461,8 +459,7 @@ TEST_F(TestBrokerClientRptDevice, QEmptiesAndFillsCorrectly)
 
 TEST_F(TestBrokerClientRptDevice, InfiniteMaxQSize)
 {
-  // Max Q Size of 0 should mean infinite
-  device_->max_q_size_ = 0;
+  device_->max_q_size_ = BrokerClient::kLimitlessQueueSize;
 
   GenericBrokerMessage broker_msg;
   for (size_t i = 0; i < 1000u; ++i)

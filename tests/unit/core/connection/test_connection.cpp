@@ -95,7 +95,6 @@ protected:
     conn_.callbacks.disconnected = conncb_disconnected;
     conn_.callbacks.message_received = conncb_msg_received;
     conn_.callbacks.destroyed = conncb_destroyed;
-    conn_.is_blocking = true;
 
     // Fill in the connect message
     std::strcpy(connect_msg_.scope, kTestScope);

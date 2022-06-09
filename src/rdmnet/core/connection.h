@@ -148,7 +148,6 @@ struct RCConnection
   EtcPalUuid            local_cid;
   etcpal_mutex_t*       lock;
   RCConnectionCallbacks callbacks;
-  bool                  is_blocking;
 
   /////////////////////////////////////////////////////////////////////////////
 
@@ -166,6 +165,7 @@ struct RCConnection
 
   // Send and receive tracking
   RCMsgBuf recv_buf;
+  bool     retry_current_message;  // recv_buf.msg couldn't be processed - retry processing it at a later time.
 };
 
 etcpal_error_t rc_conn_module_init(void);

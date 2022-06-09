@@ -887,7 +887,7 @@ static bool copy_broker_listen_addrs(RCClientScope* scope, const RdmnetBrokerDis
 #else
   size_t num_addrs_to_copy =
       (broker_info->num_listen_addrs > RDMNET_MAX_ADDRS_PER_DISCOVERED_BROKER ? RDMNET_MAX_ADDRS_PER_DISCOVERED_BROKER
-                                                                              : broker_info->num_listen_addrs);
+                                                                                       : broker_info->num_listen_addrs);
   memcpy(scope->broker_listen_addrs, broker_info->listen_addrs, num_addrs_to_copy * sizeof(EtcPalIpAddr));
 #endif
   scope->num_broker_listen_addrs = broker_info->num_listen_addrs;

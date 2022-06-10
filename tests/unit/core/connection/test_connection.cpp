@@ -60,6 +60,8 @@ static const etcpal::SockAddr kTestRemoteAddrV6(etcpal::IpAddr::FromString("2001
 class TestConnection : public testing::Test
 {
 protected:
+  static int num_messages_to_recv_;
+
   RCConnection                     conn_{};
   etcpal::Mutex                    conn_lock_;
   static constexpr etcpal_socket_t kFakeSocket = 0;
@@ -79,6 +81,16 @@ protected:
     rc_message_reset_all_fakes();
     rc_msg_buf_reset_all_fakes();
     etcpal_reset_all_fakes();
+
+    rc_msg_buf_recv_fake.custom_fake = [](RCMsgBuf*, etcpal_socket_t) {
+      if (num_messages_to_recv_ > 0)
+      {
+        --num_messages_to_recv_;
+        return kEtcPalErrOk;
+      }
+
+      return kEtcPalErrWouldBlock;
+    };
 
     etcpal_socket_fake.return_val = kEtcPalErrOk;
     etcpal_setblocking_fake.return_val = kEtcPalErrOk;
@@ -134,7 +146,11 @@ protected:
     etcpal_getms_fake.return_val += time_to_pass;
     rc_conn_module_tick();
   }
+
+  void SetNumMessagesToReceive(int num) { num_messages_to_recv_ = num; }
 };
+
+int TestConnection::num_messages_to_recv_ = 1;
 
 void SetValidConnectReply(RdmnetMessage& msg)
 {
@@ -228,6 +244,8 @@ TEST_F(TestConnection, ReportsConnectionCorrectly)
     EXPECT_EQ(conn_info->client_uid, kTestLocalUid);
   };
 
+  SetNumMessagesToReceive(1);
+
   conn_poll_info.callback(&event, conn_poll_info.data);
 
   EXPECT_EQ(conncb_connected_fake.call_count, 1u);
@@ -292,6 +310,8 @@ protected:
     etcpal_error_t return_vals[2] = {kEtcPalErrOk, kEtcPalErrNoData};
     SET_RETURN_SEQ(rc_msg_buf_parse_data, return_vals, 2);
     event.events = ETCPAL_POLL_IN;
+
+    SetNumMessagesToReceive(1);
 
     conn_poll_info.callback(&event, conn_poll_info.data);
 

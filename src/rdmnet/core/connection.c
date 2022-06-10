@@ -522,13 +522,18 @@ void receive_and_process_messages(RCConnection* conn)
   message_status_t message_status = kMessageStatusProcessNext;
   bool             retry_current_message = conn->retry_current_message;
 
+  // TODO: Handle blocking on the send side for both library and broker
+
   do
   {
+    // TODO: Receive until WouldBlock or our buffer is full
     if (!retry_current_message)
       recv_res = rc_msg_buf_recv(&conn->recv_buf, conn->sock);
 
     if (recv_res == kEtcPalErrOk)
     {
+      // TODO: Split this out into "parse" and "process" functions
+      // TODO: Sanity check case where the entire message couldn't be parsed
       etcpal_error_t res = retry_current_message ? process_current_message(conn, &message_status)
                                                  : process_next_message(conn, &message_status);
       while ((res == kEtcPalErrOk) && (message_status == kMessageStatusProcessNext))

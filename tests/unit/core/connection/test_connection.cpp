@@ -150,7 +150,7 @@ protected:
   void SetNumMessagesToReceive(int num) { num_messages_to_recv_ = num; }
 };
 
-int TestConnection::num_messages_to_recv_ = 1;
+int TestConnection::num_messages_to_recv_ = 0;
 
 void SetValidConnectReply(RdmnetMessage& msg)
 {

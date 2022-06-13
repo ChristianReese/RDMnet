@@ -182,7 +182,6 @@ etcpal_error_t rc_conn_reconnect(RCConnection*                 conn,
                                  const BrokerClientConnectMsg* new_connect_data,
                                  rdmnet_disconnect_reason_t    disconnect_reason);
 etcpal_error_t rc_conn_disconnect(RCConnection* conn, rdmnet_disconnect_reason_t disconnect_reason);
-int            rc_conn_send(RCConnection* conn, const uint8_t* data, size_t size);
 
 #ifdef __cplusplus
 }

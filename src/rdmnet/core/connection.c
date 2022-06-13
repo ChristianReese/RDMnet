@@ -263,22 +263,6 @@ etcpal_error_t rc_conn_disconnect(RCConnection* conn, rdmnet_disconnect_reason_t
 }
 
 /*
- * Send data on an RDMnet connection. Thin wrapper over the underlying socket send function.
- * The send will use non-blocking behavior since every connection's socket is configured to be non-blocking.
- */
-int rc_conn_send(RCConnection* conn, const uint8_t* data, size_t size)
-{
-  RDMNET_ASSERT(conn);
-  RDMNET_ASSERT(data);
-  RDMNET_ASSERT(size != 0);
-
-  if (conn->state != kRCConnStateHeartbeat)
-    return kEtcPalErrNotConn;
-  else
-    return etcpal_send(conn->sock, data, size, 0);
-}
-
-/*
  * Handle periodic RDMnet connection functionality.
  */
 void rc_conn_module_tick()

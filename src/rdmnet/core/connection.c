@@ -506,8 +506,6 @@ void receive_and_process_messages(RCConnection* conn)
   message_status_t message_status = kMessageStatusProcessNext;
   bool             retry_current_message = conn->retry_current_message;
 
-  // TODO: Handle blocking on the send side for both library and broker
-
   do
   {
     // TODO: Receive until WouldBlock or our buffer is full

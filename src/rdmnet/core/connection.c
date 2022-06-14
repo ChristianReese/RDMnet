@@ -508,7 +508,6 @@ void receive_and_process_messages(RCConnection* conn)
 
   do
   {
-    // TODO: Receive until WouldBlock or our buffer is full
     if (!retry_current_message)
       recv_res = rc_msg_buf_recv(&conn->recv_buf, conn->sock);
 

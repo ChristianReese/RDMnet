@@ -512,7 +512,7 @@ void receive_and_process_messages(RCConnection* conn)
   {
     recv_res = rc_msg_buf_recv(&conn->recv_buf, conn->sock);
 
-    if ((recv_res == kEtcPalErrOk) || ((recv_res == kEtcPalErrWouldBlock) && (conn->recv_buf.cur_data_size > 0)))
+    if ((recv_res == kEtcPalErrOk) || retry_current_message)
     {
       etcpal_error_t parse_res = kEtcPalErrOk;
       do
@@ -532,7 +532,7 @@ void receive_and_process_messages(RCConnection* conn)
     }
   } while ((recv_res == kEtcPalErrOk) && (message_action == kRCMessageActionProcessNext));
 
-  conn->retry_current_message = retry_current_message || (message_action == kRCMessageActionRetryLater);
+  conn->retry_current_message = (message_action == kRCMessageActionRetryLater);
 }
 
 rc_message_action_t process_message(RCConnection* conn)

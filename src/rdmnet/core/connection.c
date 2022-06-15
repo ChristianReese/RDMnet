@@ -544,8 +544,6 @@ rc_message_action_t process_message(RCConnection* conn)
   {
     if ((conn->state == kRCConnStateHeartbeat) || (conn->state == kRCConnStateRDMnetConnPending))
       handle_message(conn, &conn->recv_buf.msg, &event);
-    else
-      action = kRCMessageActionRetryLater;
 
     RC_CONN_UNLOCK(conn);
   }

@@ -1151,7 +1151,7 @@ rc_message_action_t conncb_msg_received(RCConnection* conn, const RdmnetMessage*
     RC_CLIENT_UNLOCK(client);
   }
   if (should_return)
-    return;
+    return action;
 
   switch (message->vector)
   {

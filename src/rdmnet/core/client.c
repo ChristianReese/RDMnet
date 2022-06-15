@@ -139,11 +139,11 @@ static const RdmnetScopeMonitorCallbacks disc_callbacks =
 };
 // clang-format on
 
-static void conncb_connected(RCConnection* conn, const RCConnectedInfo* connected_info);
-static void conncb_connect_failed(RCConnection* conn, const RCConnectFailedInfo* failed_info);
-static void conncb_disconnected(RCConnection* conn, const RCDisconnectedInfo* disconn_info);
-static void conncb_msg_received(RCConnection* conn, const RdmnetMessage* message);
-static void conncb_destroyed(RCConnection* conn);
+static void                conncb_connected(RCConnection* conn, const RCConnectedInfo* connected_info);
+static void                conncb_connect_failed(RCConnection* conn, const RCConnectFailedInfo* failed_info);
+static void                conncb_disconnected(RCConnection* conn, const RCDisconnectedInfo* disconn_info);
+static rc_message_action_t conncb_msg_received(RCConnection* conn, const RdmnetMessage* message);
+static void                conncb_destroyed(RCConnection* conn);
 
 // clang-format off
 static const RCConnectionCallbacks kConnCallbacks =
@@ -1135,8 +1135,10 @@ void conncb_disconnected(RCConnection* conn, const RCDisconnectedInfo* disconn_i
   client->callbacks.disconnected(client, scope->handle, &cli_disconn_info);
 }
 
-void conncb_msg_received(RCConnection* conn, const RdmnetMessage* message)
+rc_message_action_t conncb_msg_received(RCConnection* conn, const RdmnetMessage* message)
 {
+  rc_message_action_t action = kRCMessageActionProcessNext;
+
   RCClientScope* scope = GET_CLIENT_SCOPE_FROM_CONN(conn);
   RCClient*      client = scope->client;
 
@@ -1171,6 +1173,7 @@ void conncb_msg_received(RCConnection* conn, const RdmnetMessage* message)
           }
           else
           {
+            // TODO: Pass along retry
             RC_RPT_CLIENT_DATA(client)->callbacks.rpt_msg_received(client, scope->handle, &client_msg, &resp,
                                                                    &use_internal_buf_for_response);
           }
@@ -1192,6 +1195,8 @@ void conncb_msg_received(RCConnection* conn, const RdmnetMessage* message)
       // handle);
       break;
   }
+
+  return action;
 }
 
 void conncb_destroyed(RCConnection* conn)

@@ -42,7 +42,7 @@ extern "C" {
 FAKE_VOID_FUNC(conncb_connected, RCConnection*, const RCConnectedInfo*);
 FAKE_VOID_FUNC(conncb_connect_failed, RCConnection*, const RCConnectFailedInfo*);
 FAKE_VOID_FUNC(conncb_disconnected, RCConnection*, const RCDisconnectedInfo*);
-FAKE_VOID_FUNC(conncb_msg_received, RCConnection*, const RdmnetMessage*);
+FAKE_VALUE_FUNC(rc_message_action_t, conncb_msg_received, RCConnection*, const RdmnetMessage*);
 FAKE_VOID_FUNC(conncb_destroyed, RCConnection*);
 }
 

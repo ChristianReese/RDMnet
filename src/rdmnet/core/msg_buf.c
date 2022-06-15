@@ -135,18 +135,22 @@ void rc_msg_buf_init(RCMsgBuf* msg_buf)
 etcpal_error_t rc_msg_buf_recv(RCMsgBuf* msg_buf, etcpal_socket_t socket)
 {
   RDMNET_ASSERT(msg_buf);
-  RDMNET_ASSERT(msg_buf->cur_data_size < RC_MSG_BUF_SIZE);
+  RDMNET_ASSERT(msg_buf->cur_data_size <= RC_MSG_BUF_SIZE);
 
   size_t original_data_size = msg_buf->cur_data_size;
 
   int recv_res = 0;
   do
   {
-    recv_res = etcpal_recv(socket, &msg_buf->buf[msg_buf->cur_data_size], RC_MSG_BUF_SIZE - msg_buf->cur_data_size, 0);
+    size_t remaining_length = RC_MSG_BUF_SIZE - msg_buf->cur_data_size;
+    if (remaining_length > 0)
+      recv_res = etcpal_recv(socket, &msg_buf->buf[msg_buf->cur_data_size], remaining_length, 0);
+    else
+      recv_res = kEtcPalErrWouldBlock;
 
     if (recv_res > 0)
       msg_buf->cur_data_size += recv_res;
-  } while ((recv_res > 0) && (msg_buf->cur_data_size < RC_MSG_BUF_SIZE));
+  } while (recv_res > 0);
 
   if (recv_res < 0)
   {

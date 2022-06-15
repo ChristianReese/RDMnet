@@ -514,7 +514,6 @@ void receive_and_process_messages(RCConnection* conn)
     if (recv_res == kEtcPalErrOk)
     {
       // TODO: Split this out into "parse" and "process" functions
-      // TODO: Sanity check case where the entire message couldn't be parsed
       etcpal_error_t res = retry_current_message ? process_current_message(conn, &message_status)
                                                  : process_next_message(conn, &message_status);
       while ((res == kEtcPalErrOk) && (message_status == kMessageStatusProcessNext))

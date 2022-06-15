@@ -1173,9 +1173,11 @@ rc_message_action_t conncb_msg_received(RCConnection* conn, const RdmnetMessage*
           }
           else
           {
-            // TODO: Pass along retry
             RC_RPT_CLIENT_DATA(client)->callbacks.rpt_msg_received(client, scope->handle, &client_msg, &resp,
                                                                    &use_internal_buf_for_response);
+
+            if (resp.response_action == kRdmnetRdmResponseActionRetryLater)
+              action = kRCMessageActionRetryLater;
           }
           send_rdm_response_if_requested(client, scope, &client_msg, &resp, use_internal_buf_for_response);
           free_rpt_client_message(&client_msg);

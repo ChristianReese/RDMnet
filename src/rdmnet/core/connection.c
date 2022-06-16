@@ -508,15 +508,21 @@ void receive_and_process_messages(RCConnection* conn)
   rc_message_action_t message_action = kRCMessageActionProcessNext;
   bool                retry_current_message = conn->retry_current_message;
 
+  // This loop alternates between "receive as much data as possible" and "parse and process as much of the received data
+  // as possible". This is done in a loop in case the TCP queue has more data than can fit in our buffer in one receive.
   do
   {
+    // No matter what, we should continue to fill our buffer if there's data to receive and there's room in the buffer.
     recv_res = rc_msg_buf_recv(&conn->recv_buf, conn->sock);
 
     if ((recv_res == kEtcPalErrOk) || retry_current_message)
     {
+      // This next loop parses and processes as many messages from the buffer as possible, until all complete messages
+      // have been processed or we get RetryLater.
       etcpal_error_t parse_res = kEtcPalErrOk;
       do
       {
+        // If we should retry the current message, don't parse because that would overwrite the message we're retrying.
         if (retry_current_message)
           retry_current_message = false;
         else

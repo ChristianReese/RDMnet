@@ -336,6 +336,8 @@ delay the library's processing of future messages from the broker (ultimately de
 notifications), and may also narrow the TCP window of the connection with the broker, potentially
 resulting in backpressure.
 
+This is currently only supported for RDM commands received outside of LLRP.
+
 ## PIDs handled by the library
 
 The RDMnet library has all the information necessary to handle certain RDMnet-related RDM commands

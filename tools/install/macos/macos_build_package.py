@@ -139,6 +139,7 @@ notarize_result = subprocess.run(
     encoding="utf-8",
 )
 
+print(f"NOTARIZE RESULT RETURN CODE: {notarize_result.returncode}")
 print(notarize_result.stdout)
 if notarize_result.returncode != 0:
     sys.exit(1)
@@ -148,7 +149,7 @@ notarize_uuid = re.search(
     notarize_result.stdout,
 )
 if not notarize_uuid:
-    print("UUID not found in notarization output: {}".format(notarize_result.stdout))
+    print(f"UUID not found in notarization output: {notarize_result.stdout}")
     sys.exit(1)
 
 notarize_uuid = notarize_uuid.group(0)

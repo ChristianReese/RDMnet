@@ -140,6 +140,8 @@ notarize_result = subprocess.run(
 )
 
 print(f"NOTARIZE RESULT RETURN CODE: {notarize_result.returncode}")
+print(f"NOTARIZE RESULT ERROR OUTPUT: {notarize_result.stderr}")
+print(f"NOTARIZE RESULT STANDARD OUTPUT: {notarize_result.stdout}")
 print(notarize_result.stdout)
 if notarize_result.returncode != 0:
     sys.exit(1)

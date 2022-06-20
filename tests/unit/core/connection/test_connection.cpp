@@ -32,6 +32,7 @@
 #include "rdmnet_mock/core/message.h"
 #include "rdmnet_mock/core/msg_buf.h"
 #include "rdmnet_mock/core/common.h"
+#include "test_rdm_commands.h"
 #include "gtest/gtest.h"
 
 #ifdef _MSC_VER
@@ -60,8 +61,6 @@ static const etcpal::SockAddr kTestRemoteAddrV6(etcpal::IpAddr::FromString("2001
 class TestConnection : public testing::Test
 {
 protected:
-  static int num_messages_to_recv_;
-
   RCConnection                     conn_{};
   etcpal::Mutex                    conn_lock_;
   static constexpr etcpal_socket_t kFakeSocket = 0;
@@ -70,34 +69,7 @@ protected:
 
   void SetUp() override
   {
-    RESET_FAKE(conncb_connected);
-    RESET_FAKE(conncb_connect_failed);
-    RESET_FAKE(conncb_disconnected);
-    RESET_FAKE(conncb_msg_received);
-    RESET_FAKE(conncb_destroyed);
-
-    rdmnet_mock_core_reset_and_init();
-    rc_broker_prot_reset_all_fakes();
-    rc_message_reset_all_fakes();
-    rc_msg_buf_reset_all_fakes();
-    etcpal_reset_all_fakes();
-
-    rc_msg_buf_recv_fake.custom_fake = [](RCMsgBuf*, etcpal_socket_t) {
-      if (num_messages_to_recv_ > 0)
-      {
-        --num_messages_to_recv_;
-        return kEtcPalErrOk;
-      }
-
-      return kEtcPalErrWouldBlock;
-    };
-
-    etcpal_socket_fake.return_val = kEtcPalErrOk;
-    etcpal_setblocking_fake.return_val = kEtcPalErrOk;
-    etcpal_connect_fake.return_val = kEtcPalErrInProgress;
-
-    etcpal_poll_add_socket_fake.return_val = kEtcPalErrOk;
-    etcpal_poll_wait_fake.return_val = kEtcPalErrTimedOut;
+    ResetFakes();
 
     // Fill in the connection information
     conn_.local_cid = etcpal::Uuid::FromString("51077344-7164-487e-88c1-b3146de32d4c").get();
@@ -147,10 +119,58 @@ protected:
     rc_conn_module_tick();
   }
 
-  void SetNumMessagesToReceive(int num) { num_messages_to_recv_ = num; }
-};
+  void QueueUpReceives(unsigned int num_receives, unsigned int num_messages_per_receive)
+  {
+    // These are declared static so they aren't deallocated before the fakes need them.
+    static std::vector<etcpal_error_t> recv_return_vals;
+    static std::vector<etcpal_error_t> parse_return_vals;
 
-int TestConnection::num_messages_to_recv_ = 0;
+    recv_return_vals.clear();
+    parse_return_vals.clear();
+
+    for (unsigned int i = 0u; i < num_receives; ++i)
+    {
+      recv_return_vals.push_back(kEtcPalErrOk);
+
+      for (unsigned int j = 0u; j < num_messages_per_receive; ++j)
+        parse_return_vals.push_back(kEtcPalErrOk);
+
+      parse_return_vals.push_back(kEtcPalErrNoData);
+    }
+
+    recv_return_vals.push_back(kEtcPalErrWouldBlock);
+
+    SET_RETURN_SEQ(rc_msg_buf_recv, recv_return_vals.data(), static_cast<int>(recv_return_vals.size()));
+    SET_RETURN_SEQ(rc_msg_buf_parse_data, parse_return_vals.data(), static_cast<int>(parse_return_vals.size()));
+  }
+
+  void ResetFakes()
+  {
+    RESET_FAKE(conncb_connected);
+    RESET_FAKE(conncb_connect_failed);
+    RESET_FAKE(conncb_disconnected);
+    RESET_FAKE(conncb_msg_received);
+    RESET_FAKE(conncb_destroyed);
+
+    rdmnet_mock_core_reset_and_init();
+    rc_broker_prot_reset_all_fakes();
+    rc_message_reset_all_fakes();
+    rc_msg_buf_reset_all_fakes();
+    etcpal_reset_all_fakes();
+
+    etcpal_socket_fake.return_val = kEtcPalErrOk;
+    etcpal_setblocking_fake.return_val = kEtcPalErrOk;
+    etcpal_connect_fake.return_val = kEtcPalErrInProgress;
+
+    etcpal_poll_add_socket_fake.return_val = kEtcPalErrOk;
+    etcpal_poll_wait_fake.return_val = kEtcPalErrTimedOut;
+
+    rc_msg_buf_recv_fake.return_val = kEtcPalErrWouldBlock;
+    rc_msg_buf_parse_data_fake.return_val = kEtcPalErrNoData;
+
+    conncb_msg_received_fake.return_val = kRCMessageActionProcessNext;
+  }
+};
 
 void SetValidConnectReply(RdmnetMessage& msg)
 {
@@ -162,6 +182,11 @@ void SetValidConnectReply(RdmnetMessage& msg)
   conn_reply->client_uid = kTestLocalUid.get();
   conn_reply->connect_status = kRdmnetConnectOk;
   conn_reply->e133_version = E133_VERSION;
+}
+
+void SetGenericRptMessage(RdmnetMessage& msg)
+{
+  msg = TestRdmCommand::Get(kTestLocalUid.get(), E120_DEVICE_INFO).msg;
 }
 
 TEST_F(TestConnection, HandlesSocketErrorOnConnect)
@@ -233,8 +258,7 @@ TEST_F(TestConnection, ReportsConnectionCorrectly)
 
   SetValidConnectReply(conn_.recv_buf.msg);
 
-  etcpal_error_t return_vals[2] = {kEtcPalErrOk, kEtcPalErrNoData};
-  SET_RETURN_SEQ(rc_msg_buf_parse_data, return_vals, 2);
+  QueueUpReceives(1u, 1u);
   event.events = ETCPAL_POLL_IN;
 
   conncb_connected_fake.custom_fake = [](RCConnection*, const RCConnectedInfo* conn_info) {
@@ -243,8 +267,6 @@ TEST_F(TestConnection, ReportsConnectionCorrectly)
     EXPECT_EQ(conn_info->connected_addr, kTestRemoteAddrV4);
     EXPECT_EQ(conn_info->client_uid, kTestLocalUid);
   };
-
-  SetNumMessagesToReceive(1);
 
   conn_poll_info.callback(&event, conn_poll_info.data);
 
@@ -307,15 +329,15 @@ protected:
 
     SetValidConnectReply(conn_.recv_buf.msg);
 
-    etcpal_error_t return_vals[2] = {kEtcPalErrOk, kEtcPalErrNoData};
-    SET_RETURN_SEQ(rc_msg_buf_parse_data, return_vals, 2);
+    QueueUpReceives(1u, 1u);
     event.events = ETCPAL_POLL_IN;
-
-    SetNumMessagesToReceive(1);
 
     conn_poll_info.callback(&event, conn_poll_info.data);
 
     EXPECT_EQ(conncb_connected_fake.call_count, 1u);
+
+    // Start a fresh slate for the tests.
+    ResetFakes();
   }
 };
 
@@ -352,4 +374,105 @@ TEST_F(TestConnectionAlreadyConnected, MsgBufResetOnDisconnect)
 
   EXPECT_EQ(rc_msg_buf_init_fake.call_count, 1u);
   EXPECT_EQ(rc_msg_buf_init_fake.arg0_val, &conn_.recv_buf);
+}
+
+TEST_F(TestConnectionAlreadyConnected, ProcessesMultipleMessagesInOneReceive)
+{
+  static constexpr unsigned int kNumSuccessfulReceives = 1u;
+  static constexpr unsigned int kNumMessagesInReceive = 10u;
+
+  SetGenericRptMessage(conn_.recv_buf.msg);
+  QueueUpReceives(kNumSuccessfulReceives, kNumMessagesInReceive);
+
+  EtcPalPollEvent event;
+  event.events = ETCPAL_POLL_IN;
+  event.socket = kFakeSocket;
+  conn_poll_info.callback(&event, conn_poll_info.data);
+
+  EXPECT_EQ(rc_msg_buf_recv_fake.call_count, kNumSuccessfulReceives + 1u);
+  EXPECT_EQ(rc_msg_buf_parse_data_fake.call_count, kNumMessagesInReceive + 1u);
+  EXPECT_EQ(conncb_msg_received_fake.call_count, kNumMessagesInReceive);
+}
+
+TEST_F(TestConnectionAlreadyConnected, ProcessesMultipleMessagesInMultipleReceives)
+{
+  static constexpr unsigned int kNumSuccessfulReceives = 3u;
+  static constexpr unsigned int kNumMessagesPerReceive = 3u;
+
+  SetGenericRptMessage(conn_.recv_buf.msg);
+  QueueUpReceives(kNumSuccessfulReceives, kNumMessagesPerReceive);
+
+  EtcPalPollEvent event;
+  event.events = ETCPAL_POLL_IN;
+  event.socket = kFakeSocket;
+  conn_poll_info.callback(&event, conn_poll_info.data);
+
+  EXPECT_EQ(rc_msg_buf_recv_fake.call_count, kNumSuccessfulReceives + 1u);
+  EXPECT_EQ(rc_msg_buf_parse_data_fake.call_count,
+            (kNumSuccessfulReceives * kNumMessagesPerReceive) + kNumSuccessfulReceives);
+  EXPECT_EQ(conncb_msg_received_fake.call_count, kNumSuccessfulReceives * kNumMessagesPerReceive);
+}
+
+TEST_F(TestConnectionAlreadyConnected, RetriesSingleMessage)
+{
+  SetGenericRptMessage(conn_.recv_buf.msg);
+  QueueUpReceives(1u, 1u);
+  conncb_msg_received_fake.return_val = kRCMessageActionRetryLater;
+
+  // Initial attempt
+  EtcPalPollEvent event;
+  event.events = ETCPAL_POLL_IN;
+  event.socket = kFakeSocket;
+  conn_poll_info.callback(&event, conn_poll_info.data);
+
+  EXPECT_EQ(rc_msg_buf_parse_data_fake.call_count, 1u);
+  EXPECT_EQ(conncb_msg_received_fake.call_count, 1u);
+
+  // Retry on next tick
+  PassTimeAndTick();
+
+  EXPECT_EQ(rc_msg_buf_parse_data_fake.call_count, 1u);
+  EXPECT_EQ(conncb_msg_received_fake.call_count, 2u);
+
+  // Allow next retry to succeed
+  conncb_msg_received_fake.return_val = kRCMessageActionProcessNext;
+
+  PassTimeAndTick();
+
+  EXPECT_EQ(rc_msg_buf_parse_data_fake.call_count, 2u);
+  EXPECT_EQ(conncb_msg_received_fake.call_count, 3u);
+}
+
+TEST_F(TestConnectionAlreadyConnected, RetriesWhileParsingMultipleMessages)
+{
+  static constexpr unsigned int kTotalNumMessages = 10u;
+  static constexpr unsigned int kNumMessagesBeforeRetry = 5u;
+
+  SetGenericRptMessage(conn_.recv_buf.msg);
+  QueueUpReceives(1u, kTotalNumMessages);
+
+  std::vector<rc_message_action_t> msg_actions;
+  for (unsigned int i = 0u; i < kNumMessagesBeforeRetry; ++i)
+    msg_actions.push_back(kRCMessageActionProcessNext);
+
+  // Retry once, then allow the rest
+  msg_actions.push_back(kRCMessageActionRetryLater);
+  msg_actions.push_back(kRCMessageActionProcessNext);
+
+  SET_RETURN_SEQ(conncb_msg_received, msg_actions.data(), static_cast<int>(msg_actions.size()));
+
+  // Initial event should process up to the retry.
+  EtcPalPollEvent event;
+  event.events = ETCPAL_POLL_IN;
+  event.socket = kFakeSocket;
+  conn_poll_info.callback(&event, conn_poll_info.data);
+
+  EXPECT_EQ(rc_msg_buf_parse_data_fake.call_count, kNumMessagesBeforeRetry + 1u);
+  EXPECT_EQ(conncb_msg_received_fake.call_count, kNumMessagesBeforeRetry + 1u);
+
+  // Next tick should retry the current message and then process the rest.
+  PassTimeAndTick();
+
+  EXPECT_EQ(rc_msg_buf_parse_data_fake.call_count, kTotalNumMessages + 1u);  // Parse each message + "NoData" parse
+  EXPECT_EQ(conncb_msg_received_fake.call_count, kTotalNumMessages + 1u);    // Called for each message + the retry
 }
